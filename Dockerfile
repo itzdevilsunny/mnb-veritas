@@ -6,15 +6,19 @@
 # ---------------------------------------------------------------------
 # Stage 1: Build Next.js 15 Standalone Frontend
 # ---------------------------------------------------------------------
-FROM node:22-alpine AS frontend-builder
+FROM node:22-bookworm-slim AS frontend-builder
 WORKDIR /build/frontend
 
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 
 COPY frontend/ ./
+ARG NEXT_PUBLIC_SUPABASE_URL="https://rzgbswkasiddobaaewrq.supabase.co"
+ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=""
 ENV NEXT_TELEMETRY_DISABLED=1 \
-    NODE_ENV=production
+    NODE_ENV=production \
+    NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} \
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
 RUN npm run build
 
 # ---------------------------------------------------------------------
@@ -38,7 +42,7 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install -r requirements.txt
 
 # ---------------------------------------------------------------------
-# Stage 3: Unified Production Runtime
+# Stage 3: Unified Production Runtime (Debian Bookworm)
 # ---------------------------------------------------------------------
 FROM python:3.12-slim AS runner
 
@@ -50,16 +54,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME="0.0.0.0"
 
-# Install Node.js runtime and curl for health checks
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    gnupg \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# Copy Node.js 22 runtime directly from node:22-bookworm-slim (identical glibc)
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/bin/node /usr/bin/node
 
 WORKDIR /app
 
