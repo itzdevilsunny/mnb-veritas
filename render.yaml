@@ -1,5 +1,36 @@
 services:
   # -------------------------------------------------------------------------
+  # Unified Full-Stack Service (Single-Service Deployment for mnb-veritas)
+  # -------------------------------------------------------------------------
+  - type: web
+    name: mnb-veritas
+    runtime: docker
+    dockerfilePath: Dockerfile
+    region: oregon
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: VERITAS_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        value: https://rzgbswkasiddobaaewrq.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://rzgbswkasiddobaaewrq.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_CA1_Nrij5APfcsMIk0y1kA_zAgMLomo
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+
+  # -------------------------------------------------------------------------
   # 1. FastAPI Verification & Evidence Engine (Backend)
   # -------------------------------------------------------------------------
   - type: web

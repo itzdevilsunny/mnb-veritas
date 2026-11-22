@@ -52,9 +52,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
-EXPOSE 3000
+EXPOSE 3000 10000
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
-    CMD node -e "fetch('http://127.0.0.1:3000/').then((r) => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"
-
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "PORT=${PORT:-3000} HOSTNAME='0.0.0.0' node server.js"]
