@@ -1,0 +1,194 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from enum import Enum
+from typing import Any
+from pydantic import BaseModel, Field
+
+
+class Lab(str, Enum):
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+    GOOGLE = "google"
+    XAI = "xai"
+    AUTO = "auto"
+
+
+class PolicyMode(str, Enum):
+    STANDARD = "standard"
+    BALANCED = "balanced"
+    STRICT = "strict"
+
+
+class Verdict(str, Enum):
+    APPROVE = "APPROVE"
+    QUALIFY = "QUALIFY"
+    ABSTAIN = "ABSTAIN"
+    ESCALATE = "ESCALATE"
+
+
+@dataclass
+class SourceDoc:
+    doc_id: str
+    title: str
+    text: str
+    valid_from: date
+    valid_until: date | None = None
+    is_primary: bool = True
+    metadata: dict[str, Any] = field(default_factory=dict)
+    embedding: list[float] | None = None
+
+    def is_valid_on(self, ref_date: date) -> bool:
+        if ref_date < self.valid_from:
+            return False
+        if self.valid_until is not None and ref_date > self.valid_until:
+            return False
+        return True
+
+
+class ExtractedClaim(BaseModel):
+    claim_id: str
+    claim_text: str
+    is_factual: bool = True
+    verbatim_quote: str | None = Field(
+        default=None,
+        description="Exact substring copied from the source text if supported.",
+    )
+    cited_doc_id: str | None = None
+
+
+class ExtractionBundle(BaseModel):
+    draft_answer: str
+    claims: list[ExtractedClaim]
+
+
+class ClaimAuditResult(BaseModel):
+    claim_id: str
+    claim_text: str
+    is_factual: bool = True
+    quote_verified: bool = False
+    source_expired: bool = False
+    numeric_mismatch: bool = False
+    fy_mismatch: bool = False
+    cross_lab_supported: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    matched_doc_id: str | None = None
+    verbatim_quote: str | None = None
+    page_number: int | None = None
+    chunk_index: int | None = None
+
+
+class VerificationReport(BaseModel):
+    verdict: Verdict
+    answer: str
+    model_used: str
+    auditor_model_used: str | None
+    claim_audits: list[ClaimAuditResult]
+    warnings: list[str] = Field(default_factory=list)
+    numeric_concord_pct: float = 100.0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    estimated_cost_usd: float = 0.0
+
+
+# --- API Request & Response Schemas ---
+
+class SourceCreateRequest(BaseModel):
+    doc_id: str = Field(..., min_length=2, max_length=64)
+    title: str = Field(..., min_length=2, max_length=255)
+    text: str = Field(..., min_length=5)
+    valid_from: date
+    valid_until: date | None = None
+    is_primary: bool = True
+    embedding: list[float] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceExpiryUpdateRequest(BaseModel):
+    valid_until: date | None = None
+    is_active: bool | None = None
+
+
+class SourceOut(BaseModel):
+    id: str
+    doc_id: str
+    title: str
+    text: str
+    valid_from: date
+    valid_until: date | None
+    is_primary: bool
+    is_active: bool
+    is_currently_valid: bool
+    has_embedding: bool = False
+    page_count: int | None = None
+    chunk_count: int | None = None
+    created_at: datetime
+
+
+class GatewayTelemetry(BaseModel):
+    primary_model: str
+    auditor_model: str | None
+    failover_triggered: bool = False
+    latency_ms: int
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    numeric_concord_pct: float = 100.0
+    temporal_bound: str = "VALID"
+
+
+class VerifyApiRequest(BaseModel):
+    query: str = Field(..., min_length=2)
+    policy: PolicyMode = PolicyMode.STRICT
+    preferred_labs: list[Lab] | None = None
+    reference_date: date | None = None
+    inline_sources: list[SourceCreateRequest] | None = None
+    source_ids: list[str] | None = None
+
+
+class VerifyApiResponse(BaseModel):
+    audit_id: str
+    verdict: Verdict
+    answer: str
+    policy_applied: PolicyMode
+    telemetry: GatewayTelemetry
+    claim_audits: list[ClaimAuditResult]
+    warnings: list[str]
+    created_at: datetime
+
+
+class AuditLogListItem(BaseModel):
+    audit_id: str
+    query_text: str
+    verdict: str
+    answer: str
+    policy_applied: str
+    primary_model: str
+    auditor_model: str | None
+    latency_ms: int
+    estimated_cost_usd: float | None = None
+    claim_audits: list[dict[str, Any]]
+    warnings: list[str]
+    created_at: datetime
+
+
+# --- App Key Schemas ---
+
+class AppKeyCreateRequest(BaseModel):
+    app_name: str = Field(..., min_length=2, max_length=64)
+    rate_limit_per_minute: int = Field(default=60, ge=1, le=10000)
+
+
+class AppKeyOut(BaseModel):
+    id: str
+    app_name: str
+    key_prefix: str
+    rate_limit_per_minute: int
+    is_active: bool
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
+class AppKeyCreatedResponse(AppKeyOut):
+    raw_key: str

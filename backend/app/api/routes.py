@@ -1,0 +1,567 @@
+from __future__ import annotations
+
+import hashlib
+import time
+from datetime import date, datetime
+from typing import Any
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy import desc, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth_rate_limit import (
+    AuthenticatedClient,
+    generate_app_key,
+    verify_authenticated_client,
+)
+from app.core.config import get_settings
+from app.core.database import get_db_session
+from app.gateway.circuit_breaker import get_circuit_breaker
+from app.gateway.registry import build_default_router
+from app.gateway.router import VeritasRouter
+from app.ingestion.parser import extract_pdf_chunks
+from app.models.db import VeritasAppKey, VeritasAuditLog, VeritasSource
+from app.models.schemas import (
+    AppKeyCreatedResponse,
+    AppKeyCreateRequest,
+    AppKeyOut,
+    AuditLogListItem,
+    GatewayTelemetry,
+    Lab,
+    SourceCreateRequest,
+    SourceExpiryUpdateRequest,
+    SourceOut,
+    Verdict,
+    VerifyApiRequest,
+    VerifyApiResponse,
+)
+from app.pipeline.veritas_engine import SourceDoc, VeritasPipeline
+
+router = APIRouter(prefix="/v1", tags=["veritas"])
+
+
+def get_veritas_router() -> VeritasRouter:
+    """Provides the multi-lab router singleton instance."""
+    return build_default_router()
+
+
+# =====================================================================
+# PROVIDER HEALTH & CIRCUIT BREAKER ENDPOINTS
+# =====================================================================
+
+@router.get("/health/providers")
+async def get_providers_health(
+    router_inst: VeritasRouter = Depends(get_veritas_router),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> dict[str, Any]:
+    """Returns live circuit breaker state for all multi-lab LLM providers."""
+    return await router_inst.circuit_breaker.get_all_status()
+
+
+@router.post("/health/providers/{lab}/reset")
+async def reset_provider_circuit(
+    lab: str,
+    router_inst: VeritasRouter = Depends(get_veritas_router),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> dict[str, Any]:
+    """Manually resets the circuit breaker for a given lab to CLOSED."""
+    try:
+        lab_enum = Lab(lab.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid lab '{lab}'. Must be one of: anthropic, openai, google, xai.",
+        )
+
+    await router_inst.circuit_breaker.reset(lab_enum)
+    return {
+        "status": "ok",
+        "message": f"Circuit for {lab_enum.value} reset to CLOSED.",
+        "lab": lab_enum.value,
+        "state": "CLOSED",
+    }
+
+
+def _serialize_source(row: VeritasSource, ref_date: date | None = None) -> SourceOut:
+    today = ref_date or date.today()
+    valid = row.is_active and (today >= row.valid_from) and (
+        row.valid_until is None or today <= row.valid_until
+    )
+    meta = row.metadata_json or {}
+    return SourceOut(
+        id=row.id,
+        doc_id=row.doc_id,
+        title=row.title,
+        text=row.text,
+        valid_from=row.valid_from,
+        valid_until=row.valid_until,
+        is_primary=row.is_primary,
+        is_active=row.is_active,
+        is_currently_valid=valid,
+        has_embedding=bool(row.embedding),
+        page_count=meta.get("total_pages"),
+        chunk_count=meta.get("chunk_index"),
+        created_at=row.created_at,
+    )
+
+
+# =====================================================================
+# SOURCE MANAGEMENT ENDPOINTS
+# =====================================================================
+
+@router.get("/sources", response_model=list[SourceOut])
+async def list_sources(
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> list[SourceOut]:
+    stmt = select(VeritasSource).order_by(desc(VeritasSource.is_primary), desc(VeritasSource.created_at))
+    if not include_inactive:
+        stmt = stmt.where(VeritasSource.is_active.is_(True))
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_serialize_source(r) for r in rows]
+
+
+@router.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
+async def upsert_source(
+    payload: SourceCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> SourceOut:
+    if payload.valid_until is not None and payload.valid_until < payload.valid_from:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="valid_until cannot precede valid_from",
+        )
+
+    existing = (
+        await db.execute(select(VeritasSource).where(VeritasSource.doc_id == payload.doc_id))
+    ).scalar_one_or_none()
+
+    if existing:
+        existing.title = payload.title
+        existing.text = payload.text
+        existing.valid_from = payload.valid_from
+        existing.valid_until = payload.valid_until
+        existing.is_primary = payload.is_primary
+        existing.is_active = True
+        existing.metadata_json = payload.metadata
+        if payload.embedding is not None:
+            existing.embedding = payload.embedding
+        await db.commit()
+        await db.refresh(existing)
+        return _serialize_source(existing)
+
+    row = VeritasSource(
+        doc_id=payload.doc_id,
+        title=payload.title,
+        text=payload.text,
+        valid_from=payload.valid_from,
+        valid_until=payload.valid_until,
+        is_primary=payload.is_primary,
+        is_active=True,
+        embedding=payload.embedding,
+        metadata_json=payload.metadata,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return _serialize_source(row)
+
+
+@router.patch("/sources/{doc_id}/expiry", response_model=SourceOut)
+async def update_source_expiry(
+    doc_id: str,
+    payload: SourceExpiryUpdateRequest,
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> SourceOut:
+    row = (
+        await db.execute(select(VeritasSource).where(VeritasSource.doc_id == doc_id))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source {doc_id} not found")
+
+    if payload.valid_until is not None and payload.valid_until < row.valid_from:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="valid_until cannot precede valid_from")
+
+    if payload.valid_until is not None:
+        row.valid_until = payload.valid_until
+    if payload.is_active is not None:
+        row.is_active = payload.is_active
+
+    await db.commit()
+    await db.refresh(row)
+    return _serialize_source(row)
+
+
+@router.delete("/sources/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def archive_source(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> None:
+    row = (
+        await db.execute(select(VeritasSource).where(VeritasSource.doc_id == doc_id))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source {doc_id} not found")
+    row.is_active = False
+    await db.commit()
+
+
+# =====================================================================
+# PDF UPLOAD & RECURSIVE CHUNKING
+# =====================================================================
+
+class UploadedChunkSummary(BaseModel):
+    doc_id: str
+    page_number: int
+    chunk_index: int
+    char_count: int
+    preview: str
+
+
+class PdfUploadResponse(BaseModel):
+    base_doc_id: str
+    title: str
+    filename: str
+    sha256: str
+    total_pages: int
+    chunks_created: int
+    valid_from: date
+    valid_until: date | None
+    is_primary: bool
+    chunks: list[UploadedChunkSummary]
+
+
+@router.post("/sources/upload", response_model=PdfUploadResponse, status_code=status.HTTP_201_CREATED)
+async def upload_pdf_source(
+    file: UploadFile = File(..., description="Official PDF truth document"),
+    base_doc_id: str = Form(..., min_length=2, max_length=64),
+    title: str = Form(..., min_length=2, max_length=255),
+    valid_from: date = Form(...),
+    valid_until: date | None = Form(default=None),
+    is_primary: bool = Form(default=True),
+    max_chars: int = Form(default=1800, ge=400, le=6000),
+    overlap_chars: int = Form(default=200, ge=0, le=1000),
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> PdfUploadResponse:
+    settings = get_settings()
+    filename = file.filename or "uploaded.pdf"
+
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only valid PDF documents (.pdf) can be uploaded for chunking.",
+        )
+
+    content = await file.read()
+    if len(content) > settings.MAX_PDF_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum allowed size of {settings.MAX_PDF_BYTES // (1024*1024)}MB",
+        )
+
+    file_sha256 = hashlib.sha256(content).hexdigest()
+    clean_base_id = base_doc_id.strip()
+
+    try:
+        total_pages, chunks = extract_pdf_chunks(
+            pdf_bytes=content,
+            base_doc_id=clean_base_id,
+            base_title=title.strip(),
+            max_chars=max_chars,
+            overlap_chars=overlap_chars,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to parse and chunk PDF: {str(e)}",
+        )
+
+    if not chunks:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The uploaded PDF contained no extractable textual content.",
+        )
+    summaries: list[UploadedChunkSummary] = []
+
+    for chunk in chunks:
+        existing = (
+            await db.execute(select(VeritasSource).where(VeritasSource.doc_id == chunk.doc_id))
+        ).scalar_one_or_none()
+
+        chunk_title = f"{title.strip()} [p.{chunk.page_number} c.{chunk.chunk_index}]"
+        meta = {
+            "source_type": "pdf_chunk",
+            "filename": filename,
+            "sha256": file_sha256,
+            "page_number": chunk.page_number,
+            "chunk_index": chunk.chunk_index,
+            "char_count": chunk.char_count,
+            "total_pages": total_pages,
+            "base_doc_id": clean_base_id,
+        }
+
+        if existing:
+            existing.title = chunk_title
+            existing.text = chunk.text
+            existing.valid_from = valid_from
+            existing.valid_until = valid_until
+            existing.is_primary = is_primary
+            existing.is_active = True
+            existing.metadata_json = meta
+        else:
+            db.add(
+                VeritasSource(
+                    doc_id=chunk.doc_id,
+                    title=chunk_title,
+                    text=chunk.text,
+                    valid_from=valid_from,
+                    valid_until=valid_until,
+                    is_primary=is_primary,
+                    is_active=True,
+                    metadata_json=meta,
+                )
+            )
+
+        summaries.append(
+            UploadedChunkSummary(
+                doc_id=chunk.doc_id,
+                page_number=chunk.page_number,
+                chunk_index=chunk.chunk_index,
+                char_count=chunk.char_count,
+                preview=chunk.text[:140] + ("..." if len(chunk.text) > 140 else ""),
+            )
+        )
+
+    await db.commit()
+
+    return PdfUploadResponse(
+        base_doc_id=clean_base_id,
+        title=title.strip(),
+        filename=filename,
+        sha256=file_sha256,
+        total_pages=total_pages,
+        chunks_created=len(summaries),
+        valid_from=valid_from,
+        valid_until=valid_until,
+        is_primary=is_primary,
+        chunks=summaries,
+    )
+
+
+# =====================================================================
+# 5-STAGE VERIFICATION & PERSISTENT AUDIT LOG
+# =====================================================================
+
+@router.post("/verify", response_model=VerifyApiResponse)
+async def verify_query(
+    payload: VerifyApiRequest,
+    db: AsyncSession = Depends(get_db_session),
+    llm_router: VeritasRouter = Depends(get_veritas_router),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> VerifyApiResponse:
+    start_time = time.perf_counter()
+
+    # 1. Fetch active truth sources from database
+    stmt = select(VeritasSource).where(VeritasSource.is_active.is_(True))
+    if payload.source_ids:
+        stmt = stmt.where(VeritasSource.doc_id.in_(payload.source_ids))
+    db_rows = (await db.execute(stmt)).scalars().all()
+
+    merged_sources: dict[str, SourceDoc] = {
+        r.doc_id: SourceDoc(
+            doc_id=r.doc_id,
+            title=r.title,
+            text=r.text,
+            valid_from=r.valid_from,
+            valid_until=r.valid_until,
+            is_primary=r.is_primary,
+            metadata=r.metadata_json,
+            embedding=r.embedding,
+        )
+        for r in db_rows
+    }
+
+    # 2. Merge optional inline test sources (from workbench input)
+    if payload.inline_sources:
+        for s in payload.inline_sources:
+            merged_sources[s.doc_id] = SourceDoc(
+                doc_id=s.doc_id,
+                title=s.title,
+                text=s.text,
+                valid_from=s.valid_from,
+                valid_until=s.valid_until,
+                is_primary=s.is_primary,
+                metadata=s.metadata,
+                embedding=s.embedding,
+            )
+
+    # 3. Execute 5-Stage Verification Engine
+    pipeline = VeritasPipeline(router=llm_router, sources=list(merged_sources.values()))
+    report = await pipeline.run(
+        query=payload.query,
+        policy=payload.policy,
+        preferred_labs=payload.preferred_labs,
+        ref_date=payload.reference_date,
+        source_ids=payload.source_ids,
+    )
+
+    elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+    # 4. Zero-PII Telemetry Logging (Prompts & sensitive texts are excluded)
+    audit_id = f"aud_{hashlib.sha256(f'{payload.query}_{time.time()}'.encode()).hexdigest()[:8]}"
+    telemetry = GatewayTelemetry(
+        primary_model=report.model_used,
+        auditor_model=report.auditor_model_used,
+        failover_triggered=getattr(llm_router, "last_failover_occurred", False),
+        latency_ms=elapsed_ms,
+        prompt_tokens=report.tokens_in,
+        completion_tokens=report.tokens_out,
+        estimated_cost_usd=report.estimated_cost_usd,
+        numeric_concord_pct=report.numeric_concord_pct,
+        temporal_bound="VALID" if not any(c.source_expired for c in report.claim_audits) else "EXPIRED_FLAGGED",
+    )
+
+    # 5. Persist audit log
+    claim_dicts = [c.model_dump() for c in report.claim_audits]
+    audit_entry = VeritasAuditLog(
+        audit_id=audit_id,
+        query_text=payload.query,
+        verdict=report.verdict.value,
+        answer=report.answer,
+        policy_applied=payload.policy.value,
+        primary_model=report.model_used,
+        auditor_model=report.auditor_model_used,
+        failover_triggered=telemetry.failover_triggered,
+        latency_ms=elapsed_ms,
+        estimated_cost_usd=report.estimated_cost_usd,
+        claim_audits=claim_dicts,
+        warnings=report.warnings,
+        created_at=datetime.now(),
+    )
+    db.add(audit_entry)
+    await db.commit()
+
+    return VerifyApiResponse(
+        audit_id=audit_id,
+        verdict=report.verdict,
+        answer=report.answer,
+        policy_applied=payload.policy,
+        telemetry=telemetry,
+        claim_audits=report.claim_audits,
+        warnings=report.warnings,
+        created_at=audit_entry.created_at,
+    )
+
+
+# =====================================================================
+# AUDIT LOG QUERY ENDPOINTS
+# =====================================================================
+
+@router.get("/audits", response_model=list[AuditLogListItem])
+async def list_audits(
+    verdict: str | None = Query(default=None, description="Filter by APPROVE, QUALIFY, ABSTAIN, ESCALATE"),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> list[AuditLogListItem]:
+    stmt = select(VeritasAuditLog).order_by(desc(VeritasAuditLog.created_at)).limit(limit)
+    if verdict:
+        stmt = stmt.where(VeritasAuditLog.verdict == verdict.upper())
+
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        AuditLogListItem(
+            audit_id=r.audit_id,
+            query_text=r.query_text,
+            verdict=r.verdict,
+            answer=r.answer,
+            policy_applied=r.policy_applied,
+            primary_model=r.primary_model,
+            auditor_model=r.auditor_model,
+            latency_ms=r.latency_ms,
+            estimated_cost_usd=r.estimated_cost_usd,
+            claim_audits=r.claim_audits or [],
+            warnings=r.warnings or [],
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+
+# =====================================================================
+# PER-APP API KEY MANAGEMENT ENDPOINTS
+# =====================================================================
+
+@router.post("/app-keys", response_model=AppKeyCreatedResponse, status_code=status.HTTP_201_CREATED)
+async def create_app_key(
+    payload: AppKeyCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> AppKeyCreatedResponse:
+    """Creates a per-app API key. Raw key is returned once and never stored in plaintext."""
+    raw_key, key_prefix, sha256_hash = generate_app_key(
+        app_name=payload.app_name, rate_limit=payload.rate_limit_per_minute
+    )
+
+    record = VeritasAppKey(
+        app_name=payload.app_name.strip(),
+        key_prefix=key_prefix,
+        sha256_hash=sha256_hash,
+        rate_limit_per_minute=payload.rate_limit_per_minute,
+        is_active=True,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+
+    return AppKeyCreatedResponse(
+        id=record.id,
+        app_name=record.app_name,
+        key_prefix=record.key_prefix,
+        rate_limit_per_minute=record.rate_limit_per_minute,
+        is_active=record.is_active,
+        created_at=record.created_at,
+        last_used_at=record.last_used_at,
+        raw_key=raw_key,
+    )
+
+
+@router.get("/app-keys", response_model=list[AppKeyOut])
+async def list_app_keys(
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> list[AppKeyOut]:
+    """Lists registered per-app API keys (hashes and raw keys are excluded)."""
+    stmt = select(VeritasAppKey).order_by(desc(VeritasAppKey.created_at))
+    records = (await db.execute(stmt)).scalars().all()
+    return [
+        AppKeyOut(
+            id=r.id,
+            app_name=r.app_name,
+            key_prefix=r.key_prefix,
+            rate_limit_per_minute=r.rate_limit_per_minute,
+            is_active=r.is_active,
+            created_at=r.created_at,
+            last_used_at=r.last_used_at,
+        )
+        for r in records
+    ]
+
+
+@router.delete("/app-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_app_key(
+    key_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> None:
+    """Revokes a per-app API key by deactivating it."""
+    record = (await db.execute(select(VeritasAppKey).where(VeritasAppKey.id == key_id))).scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"App key {key_id} not found")
+    record.is_active = False
+    await db.commit()

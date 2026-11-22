@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mnb-veritas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mnb_veritas}
+      POSTGRES_USER: ${POSTGRES_USER:-veritas_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-veritas_pass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - veritas_pgdata:/var/lib/postgresql/data
+      - ./backend/infra/init-pgvector.sql:/docker-entrypoint-initdb.d/init-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-veritas_user} -d ${POSTGRES_DB:-mnb_veritas}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mnb-veritas-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - veritas_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mnb-veritas-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://veritas_user:veritas_pass@postgres:5432/mnb_veritas}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mnb-veritas-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      VERITAS_API_URL: http://backend:8000
+      VERITAS_API_KEY: ${VERITAS_API_KEY:-veritas-local-dev-key-2026}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  veritas_pgdata:
+  veritas_redisdata:
