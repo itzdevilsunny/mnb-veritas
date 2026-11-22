@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./veritas.db"
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
 
+    # Supabase Integration
+    NEXT_PUBLIC_SUPABASE_URL: str | None = None
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: str | None = None
+    SUPABASE_URL: str = "https://rzgbswkasiddobaaewrq.supabase.co"
+    SUPABASE_PUBLISHABLE_KEY: str | None = None
+    SUPABASE_SECRET_KEY: str | None = None
+    SUPABASE_JWKS_URL: str = "https://rzgbswkasiddobaaewrq.supabase.co/auth/v1/.well-known/jwks.json"
+
     # Circuit Breaker thresholds
     CB_FAILURE_THRESHOLD: int = 3
     CB_COOLDOWN_SECONDS: float = 30.0

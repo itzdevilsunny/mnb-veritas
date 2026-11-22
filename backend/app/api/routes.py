@@ -16,6 +16,7 @@ from app.core.auth_rate_limit import (
 )
 from app.core.config import get_settings
 from app.core.database import get_db_session
+from app.core.supabase import get_supabase_manager
 from app.gateway.circuit_breaker import get_circuit_breaker
 from app.gateway.registry import build_default_router
 from app.gateway.router import VeritasRouter
@@ -80,6 +81,15 @@ async def reset_provider_circuit(
         "lab": lab_enum.value,
         "state": "CLOSED",
     }
+
+
+@router.get("/health/supabase")
+async def get_supabase_health(
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> dict[str, Any]:
+    """Returns live connection and health status for Supabase integration."""
+    mgr = get_supabase_manager()
+    return await mgr.check_health()
 
 
 def _serialize_source(row: VeritasSource, ref_date: date | None = None) -> SourceOut:
