@@ -103,11 +103,11 @@ class MockProvider(LLMProvider):
             })
 
         # Grounded extraction attempt from provided context
-        source_match = re.search(r"\[DOC_ID:\s*([^\]]+)[^\]]*\]\s*([^\[]+)", user_prompt)
+        source_match = re.search(r"\[DOC_ID:\s*([^\|\s\]]+)[^\]]*\]\s*([^\[]+)", user_prompt)
         if source_match:
             doc_id = source_match.group(1).strip()
             source_snippet = source_match.group(2).strip()
-            first_sentence = source_snippet.split(".")[0].strip() + "."
+            first_sentence = re.split(r"(?<!\d)\.(?!\d)", source_snippet)[0].strip() + "."
             return json.dumps({
                 "draft_answer": first_sentence,
                 "claims": [
