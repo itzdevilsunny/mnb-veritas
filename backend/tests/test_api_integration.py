@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.routes import get_db_session, get_veritas_router, router as veritas_router
+from app.core.config import get_settings
 from app.models.db import Base
 from veritas_engine import Lab, MockProvider, VeritasRouter
 
@@ -95,7 +96,8 @@ async def test_app() -> AsyncGenerator[FastAPI, None]:
 @pytest_asyncio.fixture
 async def client(test_app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
     transport = httpx.ASGITransport(app=test_app)
-    headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
+    dev_key = get_settings().VERITAS_API_KEY
+    headers = {"X-Veritas-Key": dev_key}
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver", headers=headers) as ac:
         yield ac
 

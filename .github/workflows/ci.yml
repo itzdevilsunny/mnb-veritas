@@ -14,7 +14,7 @@ env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22"
   DEFAULT_POLICY_MODE: "strict"
-  VERITAS_API_KEY: "ci-test-veritas-key"
+  VERITAS_API_KEY: "veritas-local-dev-key-2026"
   ANTHROPIC_API_KEY: "ci-dummy-anthropic-key"
   OPENAI_API_KEY: "ci-dummy-openai-key"
   GEMINI_API_KEY: "ci-dummy-gemini-key"

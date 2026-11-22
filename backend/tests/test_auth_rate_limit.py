@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.api.routes import get_db_session, get_veritas_router, router as veritas_router
 from app.core.auth_rate_limit import RedisRateLimiter, rate_limiter
+from app.core.config import get_settings
 from app.models.db import Base
 from veritas_engine import Lab, MockProvider, VeritasRouter
 
@@ -60,7 +61,8 @@ async def test_invalid_api_key_returns_401(auth_test_app: FastAPI):
 @pytest.mark.asyncio
 async def test_valid_dev_admin_key_authenticates(auth_test_app: FastAPI):
     transport = httpx.ASGITransport(app=auth_test_app)
-    headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
+    admin_key = get_settings().VERITAS_API_KEY
+    headers = {"X-Veritas-Key": admin_key}
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver", headers=headers) as client:
         res = await client.get("/v1/sources")
         assert res.status_code == 200
@@ -69,7 +71,8 @@ async def test_valid_dev_admin_key_authenticates(auth_test_app: FastAPI):
 @pytest.mark.asyncio
 async def test_create_and_use_per_app_api_key(auth_test_app: FastAPI):
     transport = httpx.ASGITransport(app=auth_test_app)
-    admin_headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
+    admin_key = get_settings().VERITAS_API_KEY
+    admin_headers = {"X-Veritas-Key": admin_key}
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         # 1. Create a per-app API key
@@ -102,7 +105,8 @@ async def test_create_and_use_per_app_api_key(auth_test_app: FastAPI):
 @pytest.mark.asyncio
 async def test_rate_limiting_enforcement_returns_429_with_retry_after(auth_test_app: FastAPI):
     transport = httpx.ASGITransport(app=auth_test_app)
-    admin_headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
+    admin_key = get_settings().VERITAS_API_KEY
+    admin_headers = {"X-Veritas-Key": admin_key}
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         # Create a key with strict limit of 3 requests/min
