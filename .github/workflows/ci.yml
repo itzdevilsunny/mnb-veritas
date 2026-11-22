@@ -149,3 +149,13 @@ jobs:
           load: false
           cache-from: type=gha,scope=mnb-veritas-frontend
           cache-to: type=gha,mode=max,scope=mnb-veritas-frontend
+
+      - name: Build unified full-stack Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: false
+          cache-from: type=gha,scope=mnb-veritas-fullstack
+          cache-to: type=gha,mode=max,scope=mnb-veritas-fullstack
