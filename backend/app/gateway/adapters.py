@@ -6,9 +6,33 @@ import logging
 import os
 import re
 from app.gateway.base import LLMProvider
+from app.gateway.http_pool import get_shared_http_client
 from app.models.schemas import Lab
 
 logger = logging.getLogger("veritas.gateway.adapters")
+
+FATAL_ERROR_KEYWORDS = {
+    "quota",
+    "credit",
+    "balance",
+    "unauthorized",
+    "forbidden",
+    "invalid_api_key",
+    "authentication",
+    "billing",
+    "exceeded",
+    "400",
+    "401",
+    "402",
+    "403",
+    "429",
+}
+
+
+def is_fatal_auth_or_quota_error(exc: Exception) -> bool:
+    """Returns True if the exception represents an unrecoverable auth, quota, or billing failure."""
+    err_str = str(exc).lower()
+    return any(k in err_str for k in FATAL_ERROR_KEYWORDS)
 
 
 class MockProvider(LLMProvider):
@@ -26,9 +50,9 @@ class MockProvider(LLMProvider):
         if self.canned_response is not None:
             return self.canned_response
 
-        # Realistic async processing delay when running outside pytest test suites
+        # Minimal async tick outside pytest to simulate non-blocking execution without stalling
         if not os.environ.get("PYTEST_CURRENT_TEST"):
-            await asyncio.sleep(0.65)
+            await asyncio.sleep(0.04)
 
         # Cross-lab auditor check
         if "compliance auditor" in system_prompt.lower() or "audit" in system_prompt.lower():
@@ -110,37 +134,38 @@ class AnthropicProvider(LLMProvider):
         if not self.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
-        import httpx
+        client = get_shared_http_client()
         models_to_try = [self.model, "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest"]
         last_err: Exception | None = None
 
         for m in models_to_try:
             try:
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    resp = await client.post(
-                        "https://api.anthropic.com/v1/messages",
-                        headers={
-                            "x-api-key": self.api_key,
-                            "anthropic-version": "2023-06-01",
-                            "content-type": "application/json",
-                        },
-                        json={
-                            "model": m,
-                            "max_tokens": 2048,
-                            "temperature": temperature,
-                            "system": system_prompt,
-                            "messages": [{"role": "user", "content": user_prompt}],
-                        },
-                    )
-                    if resp.status_code == 404 or "not_found" in resp.text.lower():
-                        continue
-                    resp.raise_for_status()
-                    data = resp.json()
-                    blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
-                    self.model = m
-                    return "\n".join(blocks).strip()
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": self.api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": m,
+                        "max_tokens": 2048,
+                        "temperature": temperature,
+                        "system": system_prompt,
+                        "messages": [{"role": "user", "content": user_prompt}],
+                    },
+                )
+                if resp.status_code == 404 or "not_found" in resp.text.lower():
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+                self.model = m
+                return "\n".join(blocks).strip()
             except Exception as exc:
                 last_err = exc
+                if is_fatal_auth_or_quota_error(exc):
+                    raise exc
                 err_lower = str(exc).lower()
                 if "404" in err_lower or "not_found" in err_lower:
                     continue
@@ -171,7 +196,13 @@ class OpenAICompatProvider(LLMProvider):
             raise RuntimeError(f"API key missing for provider {self.lab.value}")
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url, timeout=4.0, max_retries=0)
+        # Use pooled httpx AsyncClient for connection reuse and tightened timeouts
+        client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            http_client=get_shared_http_client(),
+            max_retries=0,
+        )
         models_to_try = [self.model] + [m for m in self.fallback_models if m != self.model]
         last_err: Exception | None = None
 
@@ -189,10 +220,10 @@ class OpenAICompatProvider(LLMProvider):
                 return (resp.choices[0].message.content or "").strip()
             except Exception as exc:
                 last_err = exc
-                err_str = str(exc).lower()
-                # If quota/auth error, do not retry fallback models — fail immediately to trigger lab failover
-                if "quota" in err_str or "credit" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
+                # If fatal auth, quota, or billing failure, immediately raise to failover without spinning
+                if is_fatal_auth_or_quota_error(exc):
                     raise exc
+                err_str = str(exc).lower()
                 if "model_not_found" in err_str or "404" in err_str or "does not exist" in err_str:
                     continue
                 raise exc
@@ -213,7 +244,7 @@ class GeminiProvider(LLMProvider):
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
 
-        import httpx
+        client = get_shared_http_client()
         models_to_try = [self.model] + [m for m in self.fallback_models if m != self.model]
         last_err: Exception | None = None
 
@@ -225,21 +256,22 @@ class GeminiProvider(LLMProvider):
                     "systemInstruction": {"parts": [{"text": system_prompt}]},
                     "generationConfig": {"temperature": temperature},
                 }
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    resp = await client.post(url, json=payload)
-                    if resp.status_code == 404 or "not_found" in resp.text.lower():
-                        continue
-                    resp.raise_for_status()
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        text = "".join(p.get("text", "") for p in parts).strip()
-                        if text:
-                            self.model = m
-                            return text
+                resp = await client.post(url, json=payload)
+                if resp.status_code == 404 or "not_found" in resp.text.lower():
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text = "".join(p.get("text", "") for p in parts).strip()
+                    if text:
+                        self.model = m
+                        return text
             except Exception as exc:
                 last_err = exc
+                if is_fatal_auth_or_quota_error(exc):
+                    raise exc
                 err_lower = str(exc).lower()
                 if "404" in err_lower or "not_found" in err_lower:
                     continue

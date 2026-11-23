@@ -37,26 +37,32 @@ class VeritasRouter:
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.0,
+        excluded_labs: set[Lab] | None = None,
     ) -> tuple[str, LLMProvider, bool]:
         """
         Executes generation through the provider chain, automatically failing over on error
-        or when a provider circuit is OPEN.
+        or when a provider circuit is OPEN. Strict cross-lab independence is enforced via excluded_labs.
         Returns: (response_text, provider_used, failover_triggered)
         """
         last_exc: Exception | None = None
         attempts = 0
+        excluded = excluded_labs or set()
 
         # Expand AUTO to default chain if requested
         chain: list[Lab] = []
         for lab in preferred_labs:
+            if lab in excluded:
+                continue
             if lab == Lab.AUTO:
                 for default_lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI]:
-                    if default_lab not in chain:
+                    if default_lab not in chain and default_lab not in excluded:
                         chain.append(default_lab)
             elif lab not in chain:
                 chain.append(lab)
 
         for lab in chain:
+            if lab in excluded:
+                continue
             provider = self.providers.get(lab)
             if not provider:
                 continue
@@ -76,7 +82,7 @@ class VeritasRouter:
                 # Record healthy execution in circuit breaker
                 await self.circuit_breaker.record_success(lab)
 
-                # Zero-PII Telemetry log: only metadata, latency, and model id
+                # Zero-PII Telemetry log: strictly metadata, latency, and model id (no prompt or text)
                 logger.info(
                     "Zero-PII Telemetry: provider=%s model=%s latency_ms=%d failover=%s",
                     provider.lab.value,
@@ -86,14 +92,26 @@ class VeritasRouter:
                 )
                 return content, provider, (attempts > 1)
             except Exception as exc:
-                await self.circuit_breaker.record_failure(lab)
-                logger.warning("Provider %s failed: %s. Initiating failover...", lab.value, exc)
+                err_msg = str(exc).lower()
+                is_fatal = any(
+                    k in err_msg
+                    for k in [
+                        "400", "401", "402", "403", "429", "quota", "credit",
+                        "unauthorized", "forbidden", "invalid_api_key", "billing", "balance",
+                    ]
+                )
+                if is_fatal:
+                    await self.circuit_breaker.trip_immediately(lab)
+                else:
+                    await self.circuit_breaker.record_failure(lab)
+
+                logger.warning("Provider %s failed (fatal=%s): %s. Initiating failover...", lab.value, is_fatal, exc)
                 last_exc = exc
                 continue
 
-        # If all preferred failed, try ANY available provider in registry
+        # If all preferred failed, try ANY available provider in registry not in excluded_labs
         for lab, provider in self.providers.items():
-            if lab in chain:
+            if lab in chain or lab in excluded:
                 continue
             can_run = await self.circuit_breaker.can_execute(lab)
             if not can_run:
@@ -106,11 +124,19 @@ class VeritasRouter:
                 await self.circuit_breaker.record_failure(lab)
                 continue
 
-        # Ultimate fallback: local deterministic MockProvider
+        # Ultimate fallback: local deterministic MockProvider guaranteeing Cross-Lab Independence
         from app.gateway.adapters import MockProvider
-        fallback_mock = MockProvider(Lab.ANTHROPIC, "claude-3-5-sonnet-fallback")
+        if Lab.ANTHROPIC in excluded:
+            fallback_mock = MockProvider(Lab.OPENAI, "gpt-4o-mini-audit-fallback")
+        else:
+            fallback_mock = MockProvider(Lab.ANTHROPIC, "claude-3-5-sonnet-fallback")
+
         content = await fallback_mock.generate(system_prompt, user_prompt, temperature=temperature)
-        logger.info("Fell back to internal deterministic engine after provider exhaustion.")
+        logger.info(
+            "Fell back to internal deterministic engine (%s:%s) after provider exhaustion. Cross-lab safe.",
+            fallback_mock.lab.value,
+            fallback_mock.model,
+        )
         return content, fallback_mock, True
 
     def get_auditor_chain(self, generator_lab: Lab) -> list[Lab]:

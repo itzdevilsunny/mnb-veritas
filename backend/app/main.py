@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from app.api.routes import router as veritas_router
 from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory, engine
+from app.gateway.http_pool import close_shared_http_client, get_shared_http_client
 from app.models.db import Base, VeritasAuditLog, VeritasSource
 
 logging.basicConfig(level=logging.INFO)
@@ -244,8 +245,11 @@ async def lifespan(app: FastAPI):
 
     logger.info("Database schema validated.")
     await seed_initial_truth_corpuses_and_audits()
+    # Initialize pooled HTTP client for zero-stall LLM gateway communication
+    app.state.http_client = get_shared_http_client()
     yield
     # Shutdown
+    await close_shared_http_client()
     await engine.dispose()
 
 

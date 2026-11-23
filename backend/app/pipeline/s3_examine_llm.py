@@ -32,7 +32,10 @@ async def audit_claim_with_cross_lab_model(
 
     try:
         raw, provider, _ = await router.call_with_failover(
-            auditor_chain, system_prompt, user_prompt
+            auditor_chain,
+            system_prompt,
+            user_prompt,
+            excluded_labs={generator_lab},
         )
         parsed = parse_json_object(raw)
         supported = bool(parsed.get("supported", False))

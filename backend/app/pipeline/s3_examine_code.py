@@ -140,6 +140,11 @@ def check_numeric_and_fy_consistency(
         reasons.append(
             f"FY mismatch: claim references {sorted(claim_fy)}, source quote has {sorted(quote_fy)}"
         )
+    elif claim_fy and not quote_fy:
+        fy_mismatch = True
+        reasons.append(
+            f"FY mismatch: claim asserts financial year {sorted(claim_fy)} but source quote contains no financial year reference"
+        )
 
     # Mask FY before extracting financial numbers so year digits don't create false numeric mismatches
     claim_clean = mask_fy_tokens(claim_text)
@@ -151,23 +156,48 @@ def check_numeric_and_fy_consistency(
     # Compare percentages
     claim_pcts = [v for v, u in claim_quants if u == "percent"]
     quote_pcts = {v for v, u in quote_quants if u == "percent"}
-    for pct in claim_pcts:
-        if pct not in quote_pcts:
-            numeric_mismatch = True
-            reasons.append(f"Percentage mismatch: {pct}% not found in source quote")
+    if claim_pcts and not quote_pcts:
+        numeric_mismatch = True
+        reasons.append(
+            f"Percentage mismatch: claim asserts percentage(s) {claim_pcts} but source quote contains no percentages"
+        )
+    else:
+        for pct in claim_pcts:
+            if pct not in quote_pcts:
+                numeric_mismatch = True
+                reasons.append(f"Percentage mismatch: {pct}% not found in source quote")
 
     # Compare scaled financial numbers (e.g. ₹2.5 crore vs 250 lakh)
     claim_vals = [v for v, u in claim_quants if u in {"base_number", "raw_number"}]
     quote_vals = [v for v, u in quote_quants if u in {"base_number", "raw_number"}]
 
-    for c_val in claim_vals:
-        # Check if equivalent within 0.001% relative tolerance
-        if quote_vals and not any(
-            abs(c_val - q_val) <= 1e-5 * max(1.0, abs(q_val)) for q_val in quote_vals
-        ):
-            numeric_mismatch = True
-            reasons.append(
-                f"Numeric value mismatch: {c_val:g} does not match source quantities {[round(x, 2) for x in quote_vals]}"
+    if claim_vals and not quote_vals:
+        numeric_mismatch = True
+        reasons.append(
+            f"Numeric mismatch: claim asserts quantitative figure(s) {[round(x, 2) for x in claim_vals]} but source quote contains no quantities"
+        )
+    elif quote_vals:
+        for c_val in claim_vals:
+            # Check if equivalent within 0.001% relative tolerance
+            matched = any(
+                abs(c_val - q_val) <= 1e-5 * max(1.0, abs(q_val)) for q_val in quote_vals
             )
+            if not matched:
+                numeric_mismatch = True
+                # Detect scale error ratio (e.g., 100x mismatch: ₹3 lakh vs ₹3 crore)
+                scale_notes = []
+                for q_val in quote_vals:
+                    if q_val > 0 and c_val > 0:
+                        ratio = max(q_val / c_val, c_val / q_val)
+                        if abs(ratio - 100) < 1.0:
+                            scale_notes.append("100x scale error (lakh vs crore mismatch)")
+                        elif abs(ratio - 10) < 0.1:
+                            scale_notes.append("10x scale error")
+                        elif abs(ratio - 1000) < 5.0:
+                            scale_notes.append("1000x scale error")
+                scale_str = f" ({'; '.join(scale_notes)})" if scale_notes else ""
+                reasons.append(
+                    f"Numeric value mismatch: {c_val:g} does not match source quantities {[round(x, 2) for x in quote_vals]}{scale_str}"
+                )
 
     return numeric_mismatch, fy_mismatch, reasons

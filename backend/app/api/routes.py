@@ -59,8 +59,28 @@ async def get_providers_health(
     router_inst: VeritasRouter = Depends(get_veritas_router),
     client: AuthenticatedClient = Depends(verify_authenticated_client),
 ) -> dict[str, Any]:
-    """Returns live circuit breaker state for all multi-lab LLM providers."""
-    return await router_inst.circuit_breaker.get_all_status()
+    """Returns live circuit breaker state and metadata for all multi-lab LLM providers."""
+    status_data = await router_inst.circuit_breaker.get_all_status()
+    # Enrich provider metadata with configured model and engine backend
+    for lab_key, p_info in status_data.get("providers", {}).items():
+        try:
+            lab_enum = Lab(lab_key)
+            provider = router_inst.providers.get(lab_enum)
+            if provider:
+                from app.gateway.adapters import MockProvider
+                p_info["model"] = provider.model
+                p_info["configured"] = True
+                p_info["backend"] = "mock" if isinstance(provider, MockProvider) else "live_api"
+            else:
+                p_info["configured"] = False
+                p_info["backend"] = "none"
+        except Exception:
+            pass
+
+    providers_dict = status_data.get("providers", {})
+    status_data["total_configured"] = len(providers_dict)
+    status_data["active_count"] = sum(1 for p in providers_dict.values() if p.get("state") != "OPEN")
+    return status_data
 
 
 @router.post("/health/providers/{lab}/reset")
@@ -207,6 +227,54 @@ async def update_source_expiry(
     await db.commit()
     await db.refresh(row)
     return _serialize_source(row)
+
+
+@router.delete("/sources/cleanup-test-data", status_code=status.HTTP_200_OK)
+async def cleanup_test_data(
+    prefix: str = Query(default="", description="Optional custom prefix to delete, or deletes all default test prefixes"),
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> dict[str, Any]:
+    """
+    Cleans up synthetic test sources and associated audit logs generated during smoke/workflow/stress tests.
+    Targets doc_ids starting with SMOKE-, WF_TEST-, TEMP-, ADVERSARIAL-, or specified prefix.
+    """
+    from sqlalchemy import or_
+
+    test_prefixes = ["SMOKE-", "WF_TEST_", "TEMP_", "ADVERSARIAL_"]
+    if prefix:
+        test_prefixes.append(prefix)
+
+    conditions = [VeritasSource.doc_id.startswith(p) for p in test_prefixes]
+    source_stmt = select(VeritasSource).where(or_(*conditions))
+    sources_to_delete = (await db.execute(source_stmt)).scalars().all()
+    count_sources = len(sources_to_delete)
+
+    for s in sources_to_delete:
+        await db.delete(s)
+
+    # Clean synthetic test audit records
+    audit_conditions = [
+        VeritasAuditLog.audit_id.startswith("smoke_"),
+        VeritasAuditLog.audit_id.startswith("wf_"),
+        VeritasAuditLog.audit_id.startswith("test_"),
+        VeritasAuditLog.query_text.ilike("%smoke test%"),
+        VeritasAuditLog.query_text.ilike("%standing deposit facility%"),
+    ]
+    audit_stmt = select(VeritasAuditLog).where(or_(*audit_conditions))
+    audits_to_delete = (await db.execute(audit_stmt)).scalars().all()
+    count_audits = len(audits_to_delete)
+
+    for a in audits_to_delete:
+        await db.delete(a)
+
+    await db.commit()
+    return {
+        "status": "ok",
+        "message": f"Cleaned up {count_sources} test sources and {count_audits} test audit logs.",
+        "deleted_sources_count": count_sources,
+        "deleted_audits_count": count_audits,
+    }
 
 
 @router.delete("/sources/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,4 +1,4 @@
-.PHONY: help env build up down logs ps migrate test smoke all clean
+.PHONY: help env build up down logs ps migrate test smoke workflow clean-data all clean
 
 SHELL := /bin/bash
 COMPOSE := docker compose
@@ -60,6 +60,12 @@ test:
 
 smoke:
 	python scripts/smoke_test.py
+
+workflow:
+	python scripts/test_full_workflow.py
+
+clean-data:
+	curl -s -X DELETE "http://127.0.0.1:8000/v1/sources/cleanup-test-data" -H "X-Veritas-Key: $${VERITAS_API_KEY:-veritas-local-dev-key-2026}"
 
 all: build up migrate test smoke
 

@@ -30,8 +30,8 @@ class CircuitBreakerManager:
 
     def __init__(
         self,
-        failure_threshold: int = 3,
-        cooldown_seconds: float = 30.0,
+        failure_threshold: int = 2,
+        cooldown_seconds: float = 15.0,
         redis_url: str | None = None,
     ) -> None:
         self.failure_threshold = failure_threshold
@@ -179,6 +179,32 @@ class CircuitBreakerManager:
             info["state"] = CircuitState.OPEN.value
             logger.warning("In-memory circuit breaker tripped to OPEN for %s (%d failures)", lab_key, info["failure_count"])
 
+    async def trip_immediately(self, lab: Lab) -> None:
+        """Immediately trips the circuit breaker to OPEN on fatal quota/auth errors."""
+        lab_key = lab.value
+        now = time.time()
+        redis_client = await self._get_redis()
+
+        if redis_client:
+            try:
+                await redis_client.set(f"veritas:cb:{lab_key}:failures", str(self.failure_threshold))
+                await redis_client.set(f"veritas:cb:{lab_key}:last_fail", str(now))
+                await redis_client.set(f"veritas:cb:{lab_key}:state", CircuitState.OPEN.value)
+                logger.warning("Circuit breaker immediately tripped to OPEN for %s (fatal quota/auth error)", lab_key)
+                return
+            except Exception:
+                pass
+
+        info = self._local_states.setdefault(lab_key, {
+            "state": CircuitState.CLOSED.value,
+            "failure_count": 0,
+            "last_failure_time": 0.0,
+        })
+        info["failure_count"] = self.failure_threshold
+        info["last_failure_time"] = now
+        info["state"] = CircuitState.OPEN.value
+        logger.warning("In-memory circuit breaker immediately tripped to OPEN for %s (fatal quota/auth error)", lab_key)
+
     async def reset(self, lab: Lab) -> None:
         lab_key = lab.value
         redis_client = await self._get_redis()
@@ -225,7 +251,10 @@ class CircuitBreakerManager:
                 "cooldown_seconds": self.cooldown_seconds,
             }
 
+        active_count = sum(1 for p in providers_status.values() if p["state"] != CircuitState.OPEN.value)
         return {
+            "total_configured": len(providers_status),
+            "active_count": active_count,
             "redis_connected": redis_ok,
             "providers": providers_status,
         }

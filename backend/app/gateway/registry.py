@@ -13,11 +13,18 @@ from app.gateway.router import VeritasRouter
 from app.models.schemas import Lab
 
 
-def build_default_router() -> VeritasRouter:
+_default_router: VeritasRouter | None = None
+
+
+def build_default_router(force_refresh: bool = False) -> VeritasRouter:
     """
-    Constructs the Veritas multi-lab router using environment keys if present,
+    Constructs or returns the cached Veritas multi-lab router using environment keys if present,
     falling back to MockProvider for zero-dependency local runs or tests.
     """
+    global _default_router
+    if _default_router is not None and not force_refresh:
+        return _default_router
+
     settings = get_settings()
     providers: dict[Lab, LLMProvider] = {}
 
@@ -62,4 +69,5 @@ def build_default_router() -> VeritasRouter:
     else:
         providers[Lab.XAI] = MockProvider(Lab.XAI, "grok-2")
 
-    return VeritasRouter(providers, circuit_breaker=get_circuit_breaker())
+    _default_router = VeritasRouter(providers, circuit_breaker=get_circuit_breaker())
+    return _default_router

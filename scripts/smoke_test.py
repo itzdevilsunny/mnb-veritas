@@ -114,6 +114,8 @@ def main() -> int:
     finally:
         print(f"[Cleanup] Archiving smoke test source {TEST_DOC_ID}...")
         _request("DELETE", f"/v1/sources/{TEST_DOC_ID}", expect_status=(200, 204))
+        print("[Cleanup] Purging synthetic smoke test fixtures via cleanup route...")
+        _request("DELETE", "/v1/sources/cleanup-test-data", expect_status=(200, 204))
 
     print("ALL SMOKE TESTS PASSED CLEANLY.")
     return 0
