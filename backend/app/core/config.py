@@ -19,9 +19,9 @@ class Settings(BaseSettings):
 
     # Model IDs (specifying requested aliases with production fallback)
     ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
-    OPENAI_MODEL: str = "gpt-4o"
-    GEMINI_MODEL: str = "gemini-1.5-pro"
-    XAI_MODEL: str = "grok-beta"
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+    XAI_MODEL: str = "grok-2"
 
     # Governance & Auth
     DEFAULT_POLICY_MODE: str = "strict"

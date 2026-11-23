@@ -36,10 +36,10 @@ def build_default_router() -> VeritasRouter:
             lab=Lab.OPENAI,
             model=settings.OPENAI_MODEL,
             api_key=settings.OPENAI_API_KEY,
-            fallback_models=["gpt-4o", "gpt-4o-mini"],
+            fallback_models=["gpt-4o-mini", "gpt-4o"],
         )
     else:
-        providers[Lab.OPENAI] = MockProvider(Lab.OPENAI, "gpt-4o")
+        providers[Lab.OPENAI] = MockProvider(Lab.OPENAI, "gpt-4o-mini")
 
     # Google Gemini
     if settings.GEMINI_API_KEY:
@@ -57,7 +57,7 @@ def build_default_router() -> VeritasRouter:
             model=settings.XAI_MODEL,
             api_key=settings.XAI_API_KEY,
             base_url="https://api.x.ai/v1",
-            fallback_models=["grok-beta", "grok-2-latest"],
+            fallback_models=["grok-2", "grok-2-latest", "grok-beta"],
         )
     else:
         providers[Lab.XAI] = MockProvider(Lab.XAI, "grok-2")
