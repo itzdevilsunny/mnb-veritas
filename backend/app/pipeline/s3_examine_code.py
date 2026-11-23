@@ -53,10 +53,18 @@ def verify_verbatim_quote(quote: str | None, source_text: str) -> bool:
     """
     Invariant 1: No Paraphrase Proof.
     Quote must be an exact substring of the cited source text after normalization.
+    Tolerates optional terminal punctuation differences (. , ; :).
     """
     if not quote or not quote.strip():
         return False
-    return normalize_text(quote) in normalize_text(source_text)
+    norm_quote = normalize_text(quote)
+    norm_source = normalize_text(source_text)
+    if norm_quote in norm_source:
+        return True
+    clean_quote = norm_quote.rstrip(".,;:")
+    if clean_quote and clean_quote in norm_source:
+        return True
+    return False
 
 
 def extract_fy_tokens(text: str) -> set[str]:

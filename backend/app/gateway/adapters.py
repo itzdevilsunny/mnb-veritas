@@ -126,7 +126,7 @@ class MockProvider(LLMProvider):
                     score = overlap + num_bonus
                     if score > best_score:
                         best_score = score
-                        best_sentence = s_clean + ("." if not s_clean.endswith(".") else "")
+                        best_sentence = s_clean
                         best_doc_id = doc_id
 
         if best_sentence and best_doc_id:
