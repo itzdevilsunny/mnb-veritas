@@ -1,19 +1,27 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getBackendApiKey, getBackendUrl } from "@/lib/backend";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const backendUrl = getBackendUrl();
   const apiKey = getBackendApiKey();
 
   try {
+    let body = undefined;
+    try {
+      body = await req.json();
+    } catch {
+      // No body or empty JSON
+    }
+
     const res = await fetch(`${backendUrl}/v1/benchmark/run`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(apiKey ? { "X-Veritas-Key": apiKey } : {}),
       },
+      body: body ? JSON.stringify(body) : undefined,
       cache: "no-store",
     });
 

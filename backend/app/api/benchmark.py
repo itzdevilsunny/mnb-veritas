@@ -17,12 +17,16 @@ from app.pipeline.veritas_engine import VeritasPipeline
 class BenchmarkTestCase(BaseModel):
     case_id: str
     name: str
-    category: Literal["GROUNDED_FACT", "HALLUCINATION_TRAP", "NUMERIC_RECONCILIATION", "PERCENTAGE_NORMALIZATION", "TEMPORAL_ISOLATION"]
+    category: str = "CUSTOM_SCENARIO"
     query: str
-    policy: PolicyMode
-    ref_date: date
-    expected_verdict: Verdict
-    test_goal: str
+    policy: PolicyMode = PolicyMode.STRICT
+    ref_date: date = Field(default_factory=date.today)
+    expected_verdict: Verdict = Verdict.APPROVE
+    test_goal: str = "Enterprise compliance invariant check"
+
+
+class BenchmarkRunRequest(BaseModel):
+    custom_cases: list[BenchmarkTestCase] = Field(default_factory=list)
 
 
 class BenchmarkCaseResult(BaseModel):
@@ -109,8 +113,9 @@ BENCHMARK_BATTERY: list[BenchmarkTestCase] = [
 async def execute_forensic_benchmark(
     db: AsyncSession,
     llm_router: VeritasRouter,
+    custom_cases: list[BenchmarkTestCase] | None = None,
 ) -> BenchmarkSuiteReport:
-    """Executes the standardized forensic benchmark battery against live pipeline."""
+    """Executes the standardized forensic benchmark battery plus any enterprise custom cases."""
     rows = (await db.execute(select(VeritasSource))).scalars().all()
     source_docs = [
         SourceDoc(
@@ -129,7 +134,9 @@ async def execute_forensic_benchmark(
     total_cost = 0.0
     total_latency = 0
 
-    for test in BENCHMARK_BATTERY:
+    active_battery = list(BENCHMARK_BATTERY) + (custom_cases or [])
+
+    for test in active_battery:
         t0 = time.perf_counter()
         report = await pipeline.run(
             query=test.query,

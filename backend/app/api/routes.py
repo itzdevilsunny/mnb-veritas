@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.benchmark import BenchmarkSuiteReport, execute_forensic_benchmark
+from app.api.benchmark import BenchmarkRunRequest, BenchmarkSuiteReport, execute_forensic_benchmark
 from app.services.alerting import dispatch_compliance_alert, send_test_webhook
 from app.core.auth_rate_limit import (
     AuthenticatedClient,
@@ -220,6 +220,50 @@ async def archive_source(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source {doc_id} not found")
     row.is_active = False
     await db.commit()
+
+
+@router.post("/sources/seed-presets", response_model=list[SourceOut])
+async def seed_regulatory_presets(
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> list[SourceOut]:
+    """Seeds official regulatory gazette circulars into active truth corpus."""
+    presets = [
+        {
+            "doc_id": "doc_rbi_cyber_2026",
+            "title": "RBI Master Direction on Cyber Security & Digital Payment Controls 2026",
+            "text": "All regulated payment entities must enforce zero-trust identity architecture with maximum transaction velocity limits of ₹2,00,000 per hour for newly onboarded digital accounts during FY 2026-27.",
+            "valid_from": date(2026, 1, 1),
+            "valid_until": date(2028, 3, 31),
+            "is_primary": True,
+        },
+        {
+            "doc_id": "doc_sebi_esg_brsr_2026",
+            "title": "SEBI Circular on Business Responsibility and Sustainability Reporting (BRSR Core)",
+            "text": "Top 1000 listed entities by market capitalization must obtain reasonable assurance on BRSR Core indicators covering minimum 75 percent value chain footprints by end of FY 2026-27.",
+            "valid_from": date(2026, 2, 1),
+            "valid_until": date(2027, 12, 31),
+            "is_primary": True,
+        },
+    ]
+    out: list[SourceOut] = []
+    for p in presets:
+        existing = (await db.execute(select(VeritasSource).where(VeritasSource.doc_id == p["doc_id"]))).scalar_one_or_none()
+        if existing:
+            existing.title = p["title"]
+            existing.text = p["text"]
+            existing.valid_from = p["valid_from"]
+            existing.valid_until = p["valid_until"]
+            existing.is_primary = p["is_primary"]
+            existing.is_active = True
+            row = existing
+        else:
+            row = VeritasSource(**p)
+            db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        out.append(_serialize_source(row))
+    return out
 
 
 # =====================================================================
@@ -605,12 +649,14 @@ async def revoke_app_key(
 
 @router.post("/benchmark/run", response_model=BenchmarkSuiteReport)
 async def run_benchmark_battery(
+    payload: BenchmarkRunRequest | None = None,
     db: AsyncSession = Depends(get_db_session),
     llm_router: VeritasRouter = Depends(get_veritas_router),
     client: AuthenticatedClient = Depends(verify_authenticated_client),
 ) -> BenchmarkSuiteReport:
-    """Executes the standardized 5-point forensic verification benchmark battery."""
-    return await execute_forensic_benchmark(db=db, llm_router=llm_router)
+    """Executes the standardized 5-point forensic verification benchmark battery plus any custom cases."""
+    custom = payload.custom_cases if payload else None
+    return await execute_forensic_benchmark(db=db, llm_router=llm_router, custom_cases=custom)
 
 
 # =====================================================================

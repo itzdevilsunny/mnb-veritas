@@ -35,6 +35,19 @@ export default function SourceManager({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [extendingDocId, setExtendingDocId] = useState<string | null>(null);
+  const [loadingPresets, setLoadingPresets] = useState<boolean>(false);
+
+  const handleLoadPresets = async () => {
+    setLoadingPresets(true);
+    try {
+      const res = await fetch("/api/sources/seed-presets", { method: "POST" });
+      if (res.ok) {
+        await fetchSources();
+      }
+    } finally {
+      setLoadingPresets(false);
+    }
+  };
 
   const getTemporalBadge = (validUntil: string | null) => {
     if (!validUntil) {
@@ -408,11 +421,22 @@ export default function SourceManager({
 
       {/* REGISTERED TRUTH CORPUSES */}
       <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-3">
-        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
-          <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
-            Registered Truth Corpuses
-          </span>
-          <span className="font-mono text-[10px] text-zinc-500">GET /v1/sources</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
+              Registered Truth Corpuses
+            </span>
+            <span className="font-mono text-[10px] text-zinc-500">GET /v1/sources</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleLoadPresets}
+            disabled={loadingPresets}
+            className="rounded border border-sky-800/60 bg-sky-950/40 px-2.5 py-1 font-mono text-[11px] text-sky-400 hover:bg-sky-900/50 transition disabled:opacity-50"
+            title="Ingests official RBI & SEBI gazette circulars into active corpus"
+          >
+            {loadingPresets ? "Loading Gazette..." : "⚡ Ingest Official Gazette Presets"}
+          </button>
         </div>
 
         <div className="space-y-2.5">
