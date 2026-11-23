@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.benchmark import BenchmarkSuiteReport, execute_forensic_benchmark
 from app.core.auth_rate_limit import (
     AuthenticatedClient,
     generate_app_key,
@@ -581,3 +582,17 @@ async def revoke_app_key(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"App key {key_id} not found")
     record.is_active = False
     await db.commit()
+
+
+# =====================================================================
+# FORENSIC BENCHMARK SUITE ENDPOINTS
+# =====================================================================
+
+@router.post("/benchmark/run", response_model=BenchmarkSuiteReport)
+async def run_benchmark_battery(
+    db: AsyncSession = Depends(get_db_session),
+    llm_router: VeritasRouter = Depends(get_veritas_router),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> BenchmarkSuiteReport:
+    """Executes the standardized 5-point forensic verification benchmark battery."""
+    return await execute_forensic_benchmark(db=db, llm_router=llm_router)

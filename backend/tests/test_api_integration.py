@@ -222,3 +222,14 @@ async def test_pdf_upload_chunking(client: httpx.AsyncClient) -> None:
     assert body["base_doc_id"] == "TEST-PDF-01"
     assert body["total_pages"] == 2
     assert body["chunks_created"] >= 2
+
+
+@pytest.mark.integration
+async def test_forensic_benchmark_suite_endpoint(client: httpx.AsyncClient) -> None:
+    res = await client.post("/v1/benchmark/run")
+    assert res.status_code == 200, f"Status {res.status_code}, Body: {res.text}"
+    report = res.json()
+    assert "suite_id" in report
+    assert report["total_cases"] == 5
+    assert report["hallucination_catch_rate_pct"] == 100.0
+    assert len(report["cases"]) == 5

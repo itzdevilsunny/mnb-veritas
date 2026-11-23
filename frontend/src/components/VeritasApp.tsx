@@ -6,9 +6,10 @@ import VeritasPlayground from "@/components/VeritasPlayground";
 import SourceManager from "@/components/SourceManager";
 import AuditLogsView from "@/components/AuditLogsView";
 import ApiKeyManager from "@/components/ApiKeyManager";
+import BenchmarkRunner from "@/components/BenchmarkRunner";
 import type { ManagedSource } from "@/types/veritas";
 
-type TabId = "workbench" | "playground" | "sources" | "audits" | "keys";
+type TabId = "workbench" | "playground" | "benchmark" | "sources" | "audits" | "keys";
 
 interface CircuitState {
   state: "CLOSED" | "OPEN" | "HALF_OPEN";
@@ -220,6 +221,24 @@ export default function VeritasApp() {
 
         <button
           type="button"
+          onClick={() => setActiveTab("benchmark")}
+          className={`relative pb-2 font-semibold transition ${
+            activeTab === "benchmark"
+              ? "text-emerald-400"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <span>🧪</span>
+            <span>BENCHMARK LAB</span>
+          </span>
+          {activeTab === "benchmark" && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></span>
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab("sources")}
           className={`relative pb-2 font-semibold transition ${
             activeTab === "sources"
@@ -284,6 +303,10 @@ export default function VeritasApp() {
 
         {activeTab === "playground" && (
           <VeritasPlayground onVerified={handleVerificationComplete} />
+        )}
+
+        {activeTab === "benchmark" && (
+          <BenchmarkRunner />
         )}
 
         {activeTab === "sources" && (

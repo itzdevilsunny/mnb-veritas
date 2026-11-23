@@ -111,3 +111,21 @@ def test_financial_year_mismatch_detected() -> None:
 
 def test_normalize_text_collapses_whitespace() -> None:
     assert normalize_text("  A   B\n\tC  ") == "a b c"
+
+
+def test_percentage_with_per_cent_and_pct_reconciliation() -> None:
+    claim = "The MPC decided to keep the policy repo rate unchanged at 6.50%."
+    quote = "The MPC decided to keep the policy repo rate unchanged at 6.50 per cent."
+    num_bad, fy_bad, reasons = check_numeric_and_fy_consistency(claim, quote)
+    assert num_bad is False
+    assert fy_bad is False
+    assert reasons == []
+
+
+def test_cr_abbreviation_with_dots_reconciled() -> None:
+    claim = "Sanctioned amount was ₹10 cr. for urban renewal."
+    quote = "Sanctioned amount was ₹10 crore for urban renewal."
+    num_bad, fy_bad, reasons = check_numeric_and_fy_consistency(claim, quote)
+    assert num_bad is False
+    assert fy_bad is False
+    assert reasons == []

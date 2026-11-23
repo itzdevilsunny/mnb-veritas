@@ -20,7 +20,7 @@ UNIT_MULTIPLIERS: dict[str, float] = {
 }
 
 NUMBER_UNIT_PATTERN = re.compile(
-    r"(?:₹|rs\.?|inr|\$)?\s*(\d+(?:,\d+)*(?:\.\d+)?)\s*(%|percent|crores?|cr|lakhs?|lacs?|lakh|million|billion|thousand|k|m|b)?",
+    r"(?:₹|rs\.?|inr|\$)?\s*(\d+(?:,\d+)*(?:\.\d+)?)\s*(%|per\s*cent|percent|pct\.?|crores?|cr\.?|lakhs?|lacs?|lakh|million|billion|thousand|k|m|b)?",
     re.IGNORECASE,
 )
 
@@ -101,7 +101,7 @@ def mask_fy_tokens(text: str) -> str:
 
 
 def extract_scaled_quantities(text: str) -> list[tuple[float, str]]:
-    """Extracts numeric values normalized to base units (e.g. ₹2.5 crore -> 25,000,000)."""
+    """Extracts numeric values normalized to base units (e.g. ₹2.5 crore -> 25,000,000, 6.50 per cent -> 6.5%)."""
     results: list[tuple[float, str]] = []
     for match in NUMBER_UNIT_PATTERN.finditer(text):
         raw_num, raw_unit = match.group(1), (match.group(2) or "").lower().strip()
@@ -110,10 +110,11 @@ def extract_scaled_quantities(text: str) -> list[tuple[float, str]]:
         except ValueError:
             continue
 
-        if raw_unit in {"%", "percent"}:
+        clean_unit = re.sub(r"\s+", "", raw_unit).rstrip(".")
+        if clean_unit in {"%", "percent", "pct"}:
             results.append((val, "percent"))
-        elif raw_unit in UNIT_MULTIPLIERS:
-            results.append((val * UNIT_MULTIPLIERS[raw_unit], "base_number"))
+        elif clean_unit in UNIT_MULTIPLIERS:
+            results.append((val * UNIT_MULTIPLIERS[clean_unit], "base_number"))
         else:
             results.append((val, "raw_number"))
     return results
