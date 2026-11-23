@@ -28,7 +28,7 @@ def build_default_router() -> VeritasRouter:
             api_key=settings.ANTHROPIC_API_KEY,
         )
     else:
-        providers[Lab.ANTHROPIC] = MockProvider(Lab.ANTHROPIC, "claude-sonnet-5-5")
+        providers[Lab.ANTHROPIC] = MockProvider(Lab.ANTHROPIC, "claude-3-5-sonnet-20241022")
 
     # OpenAI
     if settings.OPENAI_API_KEY:
@@ -39,7 +39,7 @@ def build_default_router() -> VeritasRouter:
             fallback_models=["gpt-4o", "gpt-4o-mini"],
         )
     else:
-        providers[Lab.OPENAI] = MockProvider(Lab.OPENAI, "gpt-6.1-terra")
+        providers[Lab.OPENAI] = MockProvider(Lab.OPENAI, "gpt-4o")
 
     # Google Gemini
     if settings.GEMINI_API_KEY:
@@ -48,7 +48,7 @@ def build_default_router() -> VeritasRouter:
             api_key=settings.GEMINI_API_KEY,
         )
     else:
-        providers[Lab.GOOGLE] = MockProvider(Lab.GOOGLE, "gemini-4-hydrogen")
+        providers[Lab.GOOGLE] = MockProvider(Lab.GOOGLE, "gemini-1.5-flash")
 
     # xAI Grok
     if settings.XAI_API_KEY:
@@ -60,6 +60,6 @@ def build_default_router() -> VeritasRouter:
             fallback_models=["grok-beta", "grok-2-latest"],
         )
     else:
-        providers[Lab.XAI] = MockProvider(Lab.XAI, "grok-4.3")
+        providers[Lab.XAI] = MockProvider(Lab.XAI, "grok-2")
 
     return VeritasRouter(providers, circuit_breaker=get_circuit_breaker())

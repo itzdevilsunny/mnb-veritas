@@ -30,6 +30,17 @@ class GenerationResult:
 
 # USD per 1M tokens (input, output)
 PRICING_PER_1M: dict[str, tuple[float, float]] = {
+    # Production Real-world Models
+    "claude-3-5-sonnet-20241022": (3.00, 15.00),
+    "claude-3-5-sonnet-latest": (3.00, 15.00),
+    "claude-3-5-haiku-20241022": (0.80, 4.00),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gemini-1.5-flash": (0.075, 0.30),
+    "gemini-1.5-pro": (1.25, 5.00),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "grok-2": (2.00, 10.00),
+    # Fallback & Compatibility Aliases
     "claude-sonnet-5-5": (3.00, 15.00),
     "claude-opus-5-5": (15.00, 75.00),
     "claude-haiku-5-5": (0.80, 4.00),

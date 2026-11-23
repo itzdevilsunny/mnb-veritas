@@ -2,14 +2,12 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import AuditWorkbench from "@/components/AuditWorkbench";
-import VeritasPlayground from "@/components/VeritasPlayground";
 import SourceManager from "@/components/SourceManager";
 import AuditLogsView from "@/components/AuditLogsView";
-import ApiKeyManager from "@/components/ApiKeyManager";
 import BenchmarkRunner from "@/components/BenchmarkRunner";
 import type { ManagedSource } from "@/types/veritas";
 
-type TabId = "workbench" | "playground" | "benchmark" | "sources" | "audits" | "keys";
+type TabId = "workbench" | "benchmark" | "sources" | "audits";
 
 interface CircuitState {
   state: "CLOSED" | "OPEN" | "HALF_OPEN";
@@ -203,24 +201,6 @@ export default function VeritasApp() {
 
         <button
           type="button"
-          onClick={() => setActiveTab("playground")}
-          className={`relative pb-2 font-semibold transition ${
-            activeTab === "playground"
-              ? "text-emerald-400"
-              : "text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          <span className="flex items-center gap-1.5">
-            <span>⚡</span>
-            <span>PLAYGROUND</span>
-          </span>
-          {activeTab === "playground" && (
-            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></span>
-          )}
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveTab("benchmark")}
           className={`relative pb-2 font-semibold transition ${
             activeTab === "benchmark"
@@ -272,24 +252,6 @@ export default function VeritasApp() {
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></span>
           )}
         </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("keys")}
-          className={`relative pb-2 font-semibold transition ${
-            activeTab === "keys"
-              ? "text-emerald-400"
-              : "text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          <span className="flex items-center gap-1.5">
-            <span>🔑</span>
-            <span>API KEYS</span>
-          </span>
-          {activeTab === "keys" && (
-            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></span>
-          )}
-        </button>
       </nav>
 
       {/* Tab Panels */}
@@ -299,10 +261,6 @@ export default function VeritasApp() {
             onVerified={handleVerificationComplete}
             activeSourceCount={sourceCount}
           />
-        )}
-
-        {activeTab === "playground" && (
-          <VeritasPlayground onVerified={handleVerificationComplete} />
         )}
 
         {activeTab === "benchmark" && (
@@ -318,10 +276,6 @@ export default function VeritasApp() {
 
         {activeTab === "audits" && (
           <AuditLogsView refreshKey={auditSyncKey} />
-        )}
-
-        {activeTab === "keys" && (
-          <ApiKeyManager />
         )}
       </main>
     </div>

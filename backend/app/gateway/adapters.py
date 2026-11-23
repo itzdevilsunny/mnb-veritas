@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -25,6 +26,10 @@ class MockProvider(LLMProvider):
         if self.canned_response is not None:
             return self.canned_response
 
+        # Realistic async processing delay when running outside pytest test suites
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            await asyncio.sleep(0.65)
+
         # Cross-lab auditor check
         if "compliance auditor" in system_prompt.lower() or "audit" in system_prompt.lower():
             return json.dumps({
@@ -32,75 +37,11 @@ class MockProvider(LLMProvider):
                 "reason": "Claim strictly entailed by source quote."
             })
 
-        # Scenario Trigger 1: Green Hydrogen Mission
         question_text = (
             user_prompt.split("Approved Sources:")[0].lower()
             if "Approved Sources:" in user_prompt
             else user_prompt.lower()
         )
-
-        if "offshore" in question_text or "lng" in question_text or "cayman" in question_text or "african" in question_text:
-            return json.dumps({
-                "draft_answer": "India has provided a sovereign bilateral credit guarantee facility for offshore African LNG liquefaction terminals.",
-                "claims": [
-                    {
-                        "claim_id": "CLM-01",
-                        "claim_text": "India has provided a sovereign bilateral credit guarantee facility for offshore African LNG liquefaction terminals.",
-                        "is_factual": True,
-                        "verbatim_quote": None,
-                        "cited_doc_id": None,
-                    }
-                ]
-            })
-
-        if "green hydrogen" in question_text or "4,850" in question_text or "4850" in question_text:
-            return json.dumps({
-                "draft_answer": "The Ministry of Finance has sanctioned a total budgetary allocation of ₹4,850 crore for the National Green Hydrogen Mission for FY 2025-26 under the new outlay. The Strategic Interventions for Green Hydrogen Transition (SIGHT) program receives 68% of the total allocation, and expenditure execution is subject to quarterly review by the Ministry of New and Renewable Energy starting Q1 FY26.",
-                "claims": [
-                    {
-                        "claim_id": "CLM-01",
-                        "claim_text": "The Ministry of Finance has sanctioned a total budgetary allocation of ₹4,850 crore for the National Green Hydrogen Mission for FY 2025-26.",
-                        "is_factual": True,
-                        "verbatim_quote": "Cabinet approves continuation of National Green Hydrogen Mission with financial outlay of ₹4,850 crore specifically ear-marked for FY 2025-26 pilot electrolysers.",
-                        "cited_doc_id": "doc_green_hydrogen_2024",
-                    },
-                    {
-                        "claim_id": "CLM-02",
-                        "claim_text": "The Strategic Interventions for Green Hydrogen Transition (SIGHT) program receives 68% of the total allocation.",
-                        "is_factual": True,
-                        "verbatim_quote": "Under component II (SIGHT), 68% of aggregate outlay shall be deployed across domestic electrolyser manufacturing incentives and green ammonia pilots.",
-                        "cited_doc_id": "doc_green_hydrogen_2024",
-                    },
-                    {
-                        "claim_id": "CLM-03",
-                        "claim_text": "Expenditure execution is subject to quarterly review by the Ministry of New and Renewable Energy starting Q1 FY26.",
-                        "is_factual": True,
-                        "verbatim_quote": "Quarterly financial milestone reviews will be convened jointly by MNRE beginning Q1 of FY 2025-26.",
-                        "cited_doc_id": "doc_budget_2025",
-                    }
-                ]
-            })
-
-        if "repo" in question_text or "cpi" in question_text or "rbi" in question_text:
-            return json.dumps({
-                "draft_answer": "The Monetary Policy Committee decided to keep the policy repo rate unchanged at 6.50% while projecting CPI inflation for FY25 at 4.5%.",
-                "claims": [
-                    {
-                        "claim_id": "CLM-01",
-                        "claim_text": "The MPC kept the policy repo rate unchanged at 6.50%.",
-                        "is_factual": True,
-                        "verbatim_quote": "The MPC decided to keep the policy repo rate unchanged at 6.50 per cent.",
-                        "cited_doc_id": "doc_rbi_fy25",
-                    },
-                    {
-                        "claim_id": "CLM-02",
-                        "claim_text": "CPI inflation projection for FY25 is 4.5%.",
-                        "is_factual": True,
-                        "verbatim_quote": "CPI inflation for 2024-25 is projected at 4.5 per cent with Q4 at 4.4 per cent.",
-                        "cited_doc_id": "doc_rbi_fy25",
-                    }
-                ]
-            })
 
         # Grounded dynamic extraction from all candidate source blocks in prompt
         blocks = re.findall(r"\[DOC_ID:\s*([^\|\s\]]+)[^\]]*\]\s*([^\[]+)", user_prompt)
@@ -152,7 +93,7 @@ class MockProvider(LLMProvider):
 class AnthropicProvider(LLMProvider):
     lab = Lab.ANTHROPIC
 
-    def __init__(self, model: str = "claude-sonnet-5-5", api_key: str | None = None) -> None:
+    def __init__(self, model: str = "claude-3-5-sonnet-20241022", api_key: str | None = None) -> None:
         self.model = model
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
 
@@ -239,7 +180,7 @@ class GeminiProvider(LLMProvider):
     """Google Gemini adapter via OpenAI-compatible endpoint with automatic model fallback."""
     lab = Lab.GOOGLE
 
-    def __init__(self, model: str = "gemini-4-hydrogen", api_key: str | None = None) -> None:
+    def __init__(self, model: str = "gemini-1.5-flash", api_key: str | None = None) -> None:
         self.model = model
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.fallback_models = ["gemini-1.5-pro", "gemini-2.0-flash", "gemini-1.5-flash"]

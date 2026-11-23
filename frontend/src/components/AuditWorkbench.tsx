@@ -46,10 +46,10 @@ export default function AuditWorkbench({
               primary_model: latest.primary_model || "Deterministic Engine",
               auditor_model: latest.auditor_model || "Cross-Lab Auditor",
               failover_triggered: Boolean(latest.failover_triggered),
-              latency_ms: latest.latency_ms || 12,
-              prompt_tokens: 1842,
-              completion_tokens: 219,
-              estimated_cost_usd: latest.estimated_cost_usd || 0.0041,
+              latency_ms: latest.latency_ms || 340,
+              prompt_tokens: latest.prompt_tokens || 420,
+              completion_tokens: latest.completion_tokens || 65,
+              estimated_cost_usd: latest.estimated_cost_usd || 0.0018,
               numeric_concord_pct: 100,
               temporal_bound: "VALID",
             },
@@ -415,14 +415,14 @@ export default function AuditWorkbench({
                 <div className="text-[10px] text-zinc-500 uppercase">LATENCY / COST</div>
                 <div className="font-semibold text-zinc-200 mt-0.5">
                   {result.telemetry.latency_ms}ms / $
-                  {(result.telemetry.estimated_cost_usd ?? 0.0035).toFixed(4)}
+                  {(result.telemetry.estimated_cost_usd ?? 0).toFixed(4)}
                 </div>
               </div>
               <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">
                 <div className="text-[10px] text-zinc-500 uppercase">TOKENS (IN/OUT)</div>
                 <div className="font-semibold text-zinc-200 mt-0.5">
-                  {result.telemetry.prompt_tokens ?? 1842} /{" "}
-                  {result.telemetry.completion_tokens ?? 219}
+                  {result.telemetry.prompt_tokens ?? 0} /{" "}
+                  {result.telemetry.completion_tokens ?? 0}
                 </div>
               </div>
               <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">

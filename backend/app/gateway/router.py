@@ -108,7 +108,7 @@ class VeritasRouter:
 
         # Ultimate fallback: local deterministic MockProvider
         from app.gateway.adapters import MockProvider
-        fallback_mock = MockProvider(Lab.ANTHROPIC, "claude-sonnet-5-5-fallback")
+        fallback_mock = MockProvider(Lab.ANTHROPIC, "claude-3-5-sonnet-fallback")
         content = await fallback_mock.generate(system_prompt, user_prompt, temperature=temperature)
         logger.info("Fell back to internal deterministic engine after provider exhaustion.")
         return content, fallback_mock, True
