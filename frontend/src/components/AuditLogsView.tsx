@@ -41,10 +41,59 @@ export default function AuditLogsView({ refreshKey = 0 }: AuditLogsViewProps) {
     }
   };
 
+  const exportToJson = () => {
+    if (!audits.length) return;
+    const blob = new Blob([JSON.stringify(audits, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mnb_veritas_audit_trail_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportToCsv = () => {
+    if (!audits.length) return;
+    const headers = [
+      "audit_id",
+      "verdict",
+      "policy_applied",
+      "primary_model",
+      "auditor_model",
+      "latency_ms",
+      "cost_usd",
+      "created_at",
+      "query_text",
+      "answer",
+    ];
+    const rows = audits.map((a) => [
+      `"${a.audit_id}"`,
+      `"${a.verdict}"`,
+      `"${a.policy_applied}"`,
+      `"${a.primary_model ?? ""}"`,
+      `"${a.auditor_model ?? ""}"`,
+      a.latency_ms,
+      a.estimated_cost_usd,
+      `"${a.created_at}"`,
+      `"${(a.query_text || "").replace(/"/g, '""')}"`,
+      `"${(a.answer || "").replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mnb_veritas_audit_trail_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-4">
       {/* Filter Tabs & Refresh Header */}
-      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
         <div className="flex items-center gap-1.5 font-mono text-xs">
           {(["ALL", "APPROVE", "QUALIFY", "ABSTAIN"] as const).map((tab) => (
             <button
@@ -63,7 +112,22 @@ export default function AuditLogsView({ refreshKey = 0 }: AuditLogsViewProps) {
         </div>
 
         <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
-          <span>Persisted: SQLite/Postgres</span>
+          <button
+            type="button"
+            onClick={exportToJson}
+            disabled={!audits.length}
+            className="rounded border border-zinc-700/80 bg-zinc-800/60 px-2 py-0.5 text-zinc-300 hover:border-emerald-500/80 hover:text-emerald-300 transition disabled:opacity-40"
+          >
+            Export JSON
+          </button>
+          <button
+            type="button"
+            onClick={exportToCsv}
+            disabled={!audits.length}
+            className="rounded border border-zinc-700/80 bg-zinc-800/60 px-2 py-0.5 text-zinc-300 hover:border-emerald-500/80 hover:text-emerald-300 transition disabled:opacity-40"
+          >
+            Export CSV
+          </button>
           <button
             type="button"
             onClick={() => void fetchAudits()}

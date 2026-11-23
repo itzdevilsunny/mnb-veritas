@@ -5,9 +5,10 @@ import AuditWorkbench from "@/components/AuditWorkbench";
 import VeritasPlayground from "@/components/VeritasPlayground";
 import SourceManager from "@/components/SourceManager";
 import AuditLogsView from "@/components/AuditLogsView";
+import ApiKeyManager from "@/components/ApiKeyManager";
 import type { ManagedSource } from "@/types/veritas";
 
-type TabId = "workbench" | "playground" | "sources" | "audits";
+type TabId = "workbench" | "playground" | "sources" | "audits" | "keys";
 
 interface CircuitState {
   state: "CLOSED" | "OPEN" | "HALF_OPEN";
@@ -252,6 +253,24 @@ export default function VeritasApp() {
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></span>
           )}
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("keys")}
+          className={`relative pb-2 font-semibold transition ${
+            activeTab === "keys"
+              ? "text-emerald-400"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <span>🔑</span>
+            <span>API KEYS</span>
+          </span>
+          {activeTab === "keys" && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></span>
+          )}
+        </button>
       </nav>
 
       {/* Tab Panels */}
@@ -276,6 +295,10 @@ export default function VeritasApp() {
 
         {activeTab === "audits" && (
           <AuditLogsView refreshKey={auditSyncKey} />
+        )}
+
+        {activeTab === "keys" && (
+          <ApiKeyManager />
         )}
       </main>
     </div>
