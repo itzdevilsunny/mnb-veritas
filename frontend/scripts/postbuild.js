@@ -7,19 +7,26 @@ const aliasDir = path.join(root, "Next.js default");
 
 try {
   if (fs.existsSync(nextDir)) {
-    // If Vercel has "Next.js default" set as output directory, provide it
+    // Remove if existing broken symlink or old directory
     try {
-      if (!fs.existsSync(aliasDir)) {
+      fs.rmSync(aliasDir, { recursive: true, force: true });
+    } catch {}
+
+    // On Linux/POSIX create directory symlink with relative target, fallback to recursive copy
+    try {
+      const isWindows = process.platform === "win32";
+      if (isWindows) {
         fs.symlinkSync(nextDir, aliasDir, "junction");
-        console.log("==> Created Next.js default alias symlink for Vercel output directory.");
+      } else {
+        fs.symlinkSync(".next", aliasDir, "dir");
       }
-    } catch {
-      if (!fs.existsSync(aliasDir)) {
-        fs.cpSync(nextDir, aliasDir, { recursive: true });
-        console.log("==> Copied .next to Next.js default directory for Vercel.");
-      }
+      console.log("==> Created 'Next.js default' symlink -> .next");
+    } catch (symlinkErr) {
+      console.log("Symlink fallback to copy:", symlinkErr.message);
+      fs.cpSync(nextDir, aliasDir, { recursive: true });
+      console.log("==> Copied .next to 'Next.js default'");
     }
   }
 } catch (err) {
-  console.log("Postbuild notice:", err.message);
+  console.error("Postbuild error:", err.message);
 }
