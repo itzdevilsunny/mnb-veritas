@@ -27,8 +27,9 @@ export default function AuditWorkbench({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VerifyResponse | null>(null);
   const [inspectedClaim, setInspectedClaim] = useState<string | null>(null);
+  const [sourcesMap, setSourcesMap] = useState<Record<string, { doc_id: string; title: string; text: string; valid_from: string; valid_until: string | null }>>({});
 
-  // Load latest real audit from database on mount if available
+  // Load latest real audit from database and active truth sources on mount
   useEffect(() => {
     let mounted = true;
     fetch("/api/audits?limit=1")
@@ -59,10 +60,65 @@ export default function AuditWorkbench({
         }
       })
       .catch(() => {});
+
+    fetch("/api/sources")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((srcList) => {
+        if (mounted && Array.isArray(srcList)) {
+          const map: Record<string, { doc_id: string; title: string; text: string; valid_from: string; valid_until: string | null }> = {};
+          for (const s of srcList) {
+            map[s.doc_id] = {
+              doc_id: s.doc_id,
+              title: s.title,
+              text: s.text,
+              valid_from: s.valid_from,
+              valid_until: s.valid_until,
+            };
+          }
+          setSourcesMap(map);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       mounted = false;
     };
   }, []);
+
+  const renderHighlightedText = (sourceText: string, quote?: string | null) => {
+    if (!quote || !quote.trim()) {
+      return <p className="text-zinc-300 font-sans text-xs leading-relaxed">{sourceText}</p>;
+    }
+    const cleanQuote = quote.trim();
+    const lowerSource = sourceText.toLowerCase();
+    const lowerQuote = cleanQuote.toLowerCase();
+    const idx = lowerSource.indexOf(lowerQuote);
+
+    if (idx === -1) {
+      return (
+        <div className="space-y-2">
+          <div className="rounded bg-rose-950/60 border border-rose-800/60 p-2 text-[11px] text-rose-300 font-mono">
+            ⚠️ Exact continuous substring not matched in this chunk excerpt.
+          </div>
+          <p className="text-zinc-300 font-sans text-xs leading-relaxed">{sourceText}</p>
+        </div>
+      );
+    }
+
+    const before = sourceText.slice(0, idx);
+    const match = sourceText.slice(idx, idx + cleanQuote.length);
+    const after = sourceText.slice(idx + cleanQuote.length);
+
+    return (
+      <p className="text-zinc-300 font-sans text-xs leading-relaxed selection:bg-emerald-500/30">
+        <span>{before}</span>
+        <mark className="rounded bg-emerald-500/25 px-1 py-0.5 text-emerald-200 border-b-2 border-emerald-400 font-semibold shadow-[0_0_12px_rgba(16,185,129,0.3)]">
+          {match}
+        </mark>
+        <span>{after}</span>
+      </p>
+    );
+  };
 
   const executeVerify = async (
     targetQuery?: string,
@@ -476,13 +532,70 @@ export default function AuditWorkbench({
                 )}
 
                 {inspectedClaim === claim.claim_id && (
-                  <div className="rounded-lg border border-zinc-800 bg-[#0B0F12] p-3 font-mono text-[11px] text-zinc-400 space-y-1">
-                    <div className="text-zinc-200 font-bold mb-1">Audit Details</div>
-                    <div>• Quote Verified: {String(claim.quote_verified)}</div>
-                    <div>• Cross-Lab Audit Supported: {String(claim.cross_lab_supported)}</div>
-                    <div>• Numeric Mismatch: {String(claim.numeric_mismatch)}</div>
-                    <div>• Financial Year Mismatch: {String(claim.fy_mismatch)}</div>
-                    <div>• Source Expired: {String(claim.source_expired)}</div>
+                  <div className="rounded-xl border border-zinc-700/80 bg-[#080C0E] p-4 space-y-3 font-mono">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-zinc-200">
+                        <span>🔍 FORENSIC SOURCE EVIDENCE INSPECTOR</span>
+                        <span className="rounded bg-emerald-950/80 border border-emerald-800/60 px-2 py-0.5 text-[10px] text-emerald-300">
+                          {claim.matched_doc_id ?? "UNCITED_DOC"}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-zinc-500">
+                        {claim.page_number ? `Page ${claim.page_number} • Chunk ${claim.chunk_index ?? 1}` : "Primary Grounding"}
+                      </span>
+                    </div>
+
+                    {/* Invariant verification matrix */}
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 text-[10px]">
+                      <div className="rounded border border-zinc-800/80 bg-zinc-900/60 p-2">
+                        <span className="block text-zinc-500">Quote Exactness</span>
+                        <span className={`font-bold ${claim.quote_verified ? "text-emerald-400" : "text-rose-400"}`}>
+                          {claim.quote_verified ? "✓ 100% Substring Match" : "✗ Discrepancy Found"}
+                        </span>
+                      </div>
+                      <div className="rounded border border-zinc-800/80 bg-zinc-900/60 p-2">
+                        <span className="block text-zinc-500">Cross-Lab Consensus</span>
+                        <span className={`font-bold ${claim.cross_lab_supported ? "text-emerald-400" : "text-rose-400"}`}>
+                          {claim.cross_lab_supported ? "✓ Entailed by Auditor" : "✗ Not Entailed"}
+                        </span>
+                      </div>
+                      <div className="rounded border border-zinc-800/80 bg-zinc-900/60 p-2">
+                        <span className="block text-zinc-500">Numeric Fidelity</span>
+                        <span className={`font-bold ${!claim.numeric_mismatch ? "text-emerald-400" : "text-rose-400"}`}>
+                          {!claim.numeric_mismatch ? "✓ Crore / % Concord" : "✗ Value Contradiction"}
+                        </span>
+                      </div>
+                      <div className="rounded border border-zinc-800/80 bg-zinc-900/60 p-2">
+                        <span className="block text-zinc-500">Temporal Validity</span>
+                        <span className={`font-bold ${!claim.source_expired ? "text-emerald-400" : "text-rose-400"}`}>
+                          {!claim.source_expired ? "✓ In-Bound Valid" : "✗ Policy Expired"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Source Text with Highlighted Quotation */}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between text-[10px] text-zinc-400">
+                        <span>ORIGINAL TRUTH DOCUMENT CHUNK</span>
+                        <span className="text-zinc-500">
+                          {claim.matched_doc_id && sourcesMap[claim.matched_doc_id]
+                            ? `Valid: ${sourcesMap[claim.matched_doc_id].valid_from} to ${sourcesMap[claim.matched_doc_id].valid_until ?? "indefinite"}`
+                            : ""}
+                        </span>
+                      </div>
+                      <div className="rounded-lg border border-zinc-800 bg-[#0E1318] p-3 max-h-56 overflow-y-auto">
+                        {claim.matched_doc_id && sourcesMap[claim.matched_doc_id] ? (
+                          renderHighlightedText(
+                            sourcesMap[claim.matched_doc_id].text,
+                            claim.verbatim_quote
+                          )
+                        ) : (
+                          <p className="text-zinc-500 text-xs">
+                            No full text excerpt available for ungrounded external assertion.
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

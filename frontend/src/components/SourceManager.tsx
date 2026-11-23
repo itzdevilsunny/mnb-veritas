@@ -33,6 +33,47 @@ export default function SourceManager({
   const [textSnippet, setTextSnippet] = useState("");
   const [savingText, setSavingText] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+  const [extendingDocId, setExtendingDocId] = useState<string | null>(null);
+
+  const getTemporalBadge = (validUntil: string | null) => {
+    if (!validUntil) {
+      return { label: "PERPETUAL", cls: "bg-blue-950/80 text-blue-300 border-blue-800/60" };
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const until = new Date(validUntil);
+    until.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((until.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return { label: `EXPIRED (${Math.abs(diffDays)}d ago)`, cls: "bg-rose-950/80 text-rose-300 border-rose-800/60" };
+    }
+    if (diffDays <= 30) {
+      return { label: `EXPIRING (${diffDays}d left)`, cls: "bg-amber-950/80 text-amber-300 border-amber-800/60" };
+    }
+    return { label: "ACTIVE", cls: "bg-emerald-950/80 text-emerald-300 border-emerald-800/60" };
+  };
+
+  const handleExtendValidity = async (docId: string, currentUntil: string | null) => {
+    setExtendingDocId(docId);
+    try {
+      const baseDate = currentUntil ? new Date(currentUntil) : new Date();
+      baseDate.setFullYear(baseDate.getFullYear() + 1);
+      const newUntilStr = baseDate.toISOString().slice(0, 10);
+
+      const res = await fetch(`/api/sources/${encodeURIComponent(docId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ valid_until: newUntilStr }),
+      });
+      if (res.ok) {
+        await fetchSources();
+      }
+    } finally {
+      setExtendingDocId(null);
+    }
+  };
 
   const fetchSources = useCallback(async () => {
     setLoading(true);
@@ -384,45 +425,86 @@ export default function SourceManager({
               No truth sources registered.
             </div>
           ) : (
-            sources.map((src) => (
-              <div
-                key={src.id}
-                className="flex items-center justify-between rounded-lg border border-zinc-800/80 bg-[#121820]/70 p-3.5 hover:border-zinc-700"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-zinc-100">
-                      {src.doc_id}
-                    </span>
-                    {src.is_primary && (
-                      <span className="rounded bg-amber-950/80 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-300 border border-amber-800/50">
-                        PRIMARY
-                      </span>
-                    )}
-                    <span className="rounded bg-emerald-950/80 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-300 border border-emerald-800/50">
-                      INDEXED
-                    </span>
-                  </div>
+            sources.map((src) => {
+              const badge = getTemporalBadge(src.valid_until);
+              const isExpanded = expandedDocId === src.doc_id;
+              const isExtending = extendingDocId === src.doc_id;
 
-                  <div className="text-xs text-zinc-300">{src.title}</div>
-
-                  <div className="font-mono text-[11px] text-zinc-500">
-                    Validity: {src.valid_from} to {src.valid_until ?? "indefinite"}
-                    {src.page_count
-                      ? ` • ${src.page_count} pgs (${src.chunk_count ?? 1} chunks)`
-                      : ""}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => void handleArchive(src.doc_id)}
-                  className="rounded border border-zinc-700/80 px-2.5 py-1 font-mono text-[11px] text-zinc-400 hover:border-rose-700 hover:text-rose-300"
+              return (
+                <div
+                  key={src.id}
+                  className="rounded-lg border border-zinc-800/80 bg-[#121820]/70 p-3.5 hover:border-zinc-700 transition space-y-2.5"
                 >
-                  Archive
-                </button>
-              </div>
-            ))
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-zinc-100">
+                          {src.doc_id}
+                        </span>
+                        {src.is_primary && (
+                          <span className="rounded bg-amber-950/80 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-300 border border-amber-800/50">
+                            PRIMARY
+                          </span>
+                        )}
+                        <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold border ${badge.cls}`}>
+                          {badge.label}
+                        </span>
+                        <span className="rounded bg-emerald-950/80 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-300 border border-emerald-800/50">
+                          INDEXED
+                        </span>
+                      </div>
+
+                      <div className="text-xs text-zinc-300 font-medium">{src.title}</div>
+
+                      <div className="font-mono text-[11px] text-zinc-500">
+                        Validity: {src.valid_from} to {src.valid_until ?? "indefinite"}
+                        {src.page_count
+                          ? ` • ${src.page_count} pgs (${src.chunk_count ?? 1} chunks)`
+                          : ""}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 font-mono text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedDocId(isExpanded ? null : src.doc_id)}
+                        className="rounded border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-zinc-100 transition"
+                      >
+                        {isExpanded ? "Hide Text" : "Inspect Text"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleExtendValidity(src.doc_id, src.valid_until)}
+                        disabled={isExtending}
+                        className="rounded border border-emerald-900/60 bg-emerald-950/40 px-2.5 py-1 text-[11px] text-emerald-400 hover:bg-emerald-900/50 transition disabled:opacity-50"
+                        title="Extend validity window by 1 year"
+                      >
+                        {isExtending ? "Extending..." : "+1 Year Expiry"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleArchive(src.doc_id)}
+                        className="rounded border border-zinc-700/80 px-2.5 py-1 text-[11px] text-zinc-400 hover:border-rose-700 hover:text-rose-300 transition"
+                      >
+                        Archive
+                      </button>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="rounded-lg border border-zinc-800 bg-[#080C0E] p-3 space-y-1.5 font-mono text-xs">
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500 border-b border-zinc-800/80 pb-1">
+                        <span>SOURCE CORPUS TEXT // {src.text.length} CHARACTERS</span>
+                        <span>STATUS: {src.is_active ? "ACTIVE" : "INACTIVE"}</span>
+                      </div>
+                      <p className="text-xs text-zinc-300 leading-relaxed max-h-48 overflow-y-auto font-sans whitespace-pre-wrap selection:bg-emerald-500/20">
+                        {src.text}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>
