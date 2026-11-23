@@ -102,6 +102,27 @@ class MockProvider(LLMProvider):
                         best_sentence = s_clean
                         best_doc_id = doc_id
 
+        # Query consistency guardrails for FY and scale units
+        if best_sentence:
+            from app.pipeline.s3_examine_code import extract_fy_tokens, extract_scaled_quantities
+            q_fy = extract_fy_tokens(question_text)
+            s_fy = extract_fy_tokens(best_sentence)
+            if q_fy and s_fy and q_fy != s_fy:
+                best_sentence = None
+                best_doc_id = None
+                best_score = -1.0
+
+        if best_sentence:
+            q_quants = [v for v, u in extract_scaled_quantities(question_text) if u == "base_number"]
+            s_quants = [v for v, u in extract_scaled_quantities(best_sentence) if u == "base_number"]
+            if q_quants and s_quants:
+                for q_val in q_quants:
+                    if not any(abs(q_val - s_val) <= 1e-5 * max(1.0, abs(s_val)) for s_val in s_quants):
+                        best_sentence = None
+                        best_doc_id = None
+                        best_score = -1.0
+                        break
+
         # Require meaningful semantic content overlap
         if best_sentence and best_doc_id and best_score >= 2.0:
             return json.dumps({

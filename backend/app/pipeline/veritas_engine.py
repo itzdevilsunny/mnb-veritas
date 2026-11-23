@@ -122,6 +122,27 @@ class VeritasPipeline:
             )
             reasons.extend(num_reasons)
 
+            # Query-to-Claim Invariant Checks:
+            # Check FY agreement between user query and claim
+            q_fy = extract_fy_tokens(query)
+            c_fy = extract_fy_tokens(claim.claim_text)
+            if q_fy and c_fy and q_fy != c_fy:
+                fy_bad = True
+                reasons.append(
+                    f"Query requested FY {sorted(q_fy)}, but claim references {sorted(c_fy)}"
+                )
+
+            # Check scaled quantitative agreement between user query and claim
+            q_quants = [v for v, u in extract_scaled_quantities(query) if u == "base_number"]
+            c_quants = [v for v, u in extract_scaled_quantities(claim.claim_text) if u == "base_number"]
+            if q_quants and c_quants:
+                for q_val in q_quants:
+                    if not any(abs(q_val - c_val) <= 1e-5 * max(1.0, abs(c_val)) for c_val in c_quants):
+                        num_bad = True
+                        reasons.append(
+                            f"Query queried quantity {q_val:g} contradicts verified claim quantity {[round(x, 2) for x in c_quants]}"
+                        )
+
             # Invariant 3: Cross-Lab Secondary Model Audit
             cross_lab_ok = False
             if quote_ok and not num_bad and not fy_bad:
