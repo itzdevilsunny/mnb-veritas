@@ -1,17 +1,19 @@
+import os
 import urllib.request
 import json
 import sys
 
-API_KEY = "veritas-local-dev-key-2026"
+BASE_URL = os.getenv("VERITAS_API_URL", "http://127.0.0.1:8000").rstrip("/")
+API_KEY = os.getenv("VERITAS_API_KEY", "veritas-local-dev-key-2026")
 headers = {"Content-Type": "application/json", "X-Veritas-Key": API_KEY}
 
 def post(url, data):
-    req = urllib.request.Request("http://127.0.0.1:8000" + url, json.dumps(data).encode(), headers)
+    req = urllib.request.Request(BASE_URL + url, json.dumps(data).encode(), headers)
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read().decode())
 
 def get(url):
-    req = urllib.request.Request("http://127.0.0.1:8000" + url, headers=headers)
+    req = urllib.request.Request(BASE_URL + url, headers=headers)
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read().decode())
 
