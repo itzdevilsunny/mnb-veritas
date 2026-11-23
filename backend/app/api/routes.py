@@ -502,6 +502,7 @@ async def verify_query(
     db.add(audit_entry)
     await db.commit()
 
+    settings = get_settings()
     if report.verdict in {Verdict.ABSTAIN, Verdict.QUALIFY} and settings.COMPLIANCE_WEBHOOK_URL:
         import asyncio
         asyncio.create_task(

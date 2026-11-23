@@ -116,7 +116,7 @@ class AnthropicProvider(LLMProvider):
 
         for m in models_to_try:
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                async with httpx.AsyncClient(timeout=4.0) as client:
                     resp = await client.post(
                         "https://api.anthropic.com/v1/messages",
                         headers={
@@ -141,7 +141,8 @@ class AnthropicProvider(LLMProvider):
                     return "\n".join(blocks).strip()
             except Exception as exc:
                 last_err = exc
-                if "404" in str(exc) or "not_found" in str(exc).lower():
+                err_lower = str(exc).lower()
+                if "404" in err_lower or "not_found" in err_lower:
                     continue
                 raise exc
 
@@ -170,7 +171,7 @@ class OpenAICompatProvider(LLMProvider):
             raise RuntimeError(f"API key missing for provider {self.lab.value}")
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url, timeout=4.0, max_retries=0)
         models_to_try = [self.model] + [m for m in self.fallback_models if m != self.model]
         last_err: Exception | None = None
 
@@ -189,6 +190,9 @@ class OpenAICompatProvider(LLMProvider):
             except Exception as exc:
                 last_err = exc
                 err_str = str(exc).lower()
+                # If quota/auth error, do not retry fallback models — fail immediately to trigger lab failover
+                if "quota" in err_str or "credit" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
+                    raise exc
                 if "model_not_found" in err_str or "404" in err_str or "does not exist" in err_str:
                     continue
                 raise exc
@@ -221,7 +225,7 @@ class GeminiProvider(LLMProvider):
                     "systemInstruction": {"parts": [{"text": system_prompt}]},
                     "generationConfig": {"temperature": temperature},
                 }
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                async with httpx.AsyncClient(timeout=4.0) as client:
                     resp = await client.post(url, json=payload)
                     if resp.status_code == 404 or "not_found" in resp.text.lower():
                         continue
@@ -236,7 +240,8 @@ class GeminiProvider(LLMProvider):
                             return text
             except Exception as exc:
                 last_err = exc
-                if "404" in str(exc) or "not_found" in str(exc).lower():
+                err_lower = str(exc).lower()
+                if "404" in err_lower or "not_found" in err_lower:
                     continue
                 raise exc
 

@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     SUPABASE_JWKS_URL: str = "https://rzgbswkasiddobaaewrq.supabase.co/auth/v1/.well-known/jwks.json"
 
     # Circuit Breaker thresholds
-    CB_FAILURE_THRESHOLD: int = 3
-    CB_COOLDOWN_SECONDS: float = 30.0
+    CB_FAILURE_THRESHOLD: int = 1
+    CB_COOLDOWN_SECONDS: float = 60.0
 
     # Hybrid Retrieval (S2) Settings
     MAX_CANDIDATE_SOURCES: int = 5
