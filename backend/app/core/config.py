@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     EXACT_SUBSTRING_REQUIRED: bool = True
     MAX_PDF_BYTES: int = 25 * 1024 * 1024  # 25MB
 
+    # Compliance & Incident Alerting
+    COMPLIANCE_WEBHOOK_URL: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

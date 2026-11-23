@@ -32,6 +32,11 @@ export default function ApiKeyManager() {
   const [copiedCurl, setCopiedCurl] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Compliance Webhook test state
+  const [webhookUrl, setWebhookUrl] = useState<string>("");
+  const [testingWebhook, setTestingWebhook] = useState<boolean>(false);
+  const [webhookResult, setWebhookResult] = useState<{ success: boolean; message: string } | null>(null);
+
   const fetchKeys = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -112,6 +117,29 @@ export default function ApiKeyManager() {
     } else {
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
+    }
+  };
+
+  const handleTestWebhook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!webhookUrl.trim()) return;
+    setTestingWebhook(true);
+    setWebhookResult(null);
+    try {
+      const res = await fetch("/api/compliance/webhook-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhook_url: webhookUrl.trim() }),
+      });
+      const data = await res.json();
+      setWebhookResult(data);
+    } catch (err) {
+      setWebhookResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Failed to connect to backend",
+      });
+    } finally {
+      setTestingWebhook(false);
     }
   };
 
@@ -331,6 +359,58 @@ export default function ApiKeyManager() {
         <pre className="overflow-x-auto rounded-lg border border-zinc-800/80 bg-[#080C0E] p-3.5 font-mono text-xs text-zinc-300 leading-relaxed">
           <code>{sampleCurl}</code>
         </pre>
+      </div>
+
+      {/* Compliance Incident Alerting & Webhooks */}
+      <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
+              Outbound Compliance Webhook Alerting
+            </span>
+            <span className="rounded bg-amber-950/70 border border-amber-800/60 px-2 py-0.5 font-mono text-[10px] text-amber-400">
+              Real-time Invariant Dispatch
+            </span>
+          </div>
+          <span className="font-mono text-[11px] text-zinc-500">
+            Slack / Teams / SIEM Compatible
+          </span>
+        </div>
+
+        <p className="text-xs text-zinc-400 leading-relaxed">
+          When an audit results in <span className="text-rose-400 font-mono font-bold">ABSTAIN</span> (hallucination detected, numeric contradiction, or expired policy violation), MNB Veritas immediately dispatches a non-blocking asynchronous incident payload to notify risk teams.
+        </p>
+
+        <form onSubmit={handleTestWebhook} className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            type="url"
+            required
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="https://hooks.slack.com/services/... or https://your-domain.com/webhook"
+            className="flex-1 rounded-lg border border-zinc-800 bg-[#0B0F12] px-3 py-2 font-mono text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/80 focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={testingWebhook || !webhookUrl.trim()}
+            className="rounded-lg bg-zinc-800 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-zinc-200 hover:bg-zinc-700 transition disabled:opacity-50"
+          >
+            {testingWebhook ? "Sending..." : "Test Ping"}
+          </button>
+        </form>
+
+        {webhookResult && (
+          <div
+            className={`rounded-lg p-3 font-mono text-xs border ${
+              webhookResult.success
+                ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-300"
+                : "bg-rose-950/40 border-rose-800/60 text-rose-300"
+            }`}
+          >
+            {webhookResult.success ? "✅ " : "❌ "}
+            {webhookResult.message}
+          </div>
+        )}
       </div>
     </div>
   );

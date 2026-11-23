@@ -10,6 +10,7 @@ from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.benchmark import BenchmarkSuiteReport, execute_forensic_benchmark
+from app.services.alerting import dispatch_compliance_alert, send_test_webhook
 from app.core.auth_rate_limit import (
     AuthenticatedClient,
     generate_app_key,
@@ -457,6 +458,20 @@ async def verify_query(
     db.add(audit_entry)
     await db.commit()
 
+    if report.verdict in {Verdict.ABSTAIN, Verdict.QUALIFY} and settings.COMPLIANCE_WEBHOOK_URL:
+        import asyncio
+        asyncio.create_task(
+            dispatch_compliance_alert(
+                event_type=f"VERDICT_{report.verdict.value}",
+                audit_id=audit_id,
+                query_text=payload.query,
+                verdict=report.verdict.value,
+                policy_applied=payload.policy.value,
+                reasons=report.warnings,
+                model=report.model_used,
+            )
+        )
+
     return VerifyApiResponse(
         audit_id=audit_id,
         verdict=report.verdict,
@@ -596,3 +611,26 @@ async def run_benchmark_battery(
 ) -> BenchmarkSuiteReport:
     """Executes the standardized 5-point forensic verification benchmark battery."""
     return await execute_forensic_benchmark(db=db, llm_router=llm_router)
+
+
+# =====================================================================
+# COMPLIANCE ALERTING & WEBHOOK ENDPOINTS
+# =====================================================================
+
+class WebhookTestRequest(BaseModel):
+    webhook_url: str
+
+
+class WebhookTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post("/compliance/webhook-test", response_model=WebhookTestResponse)
+async def test_compliance_webhook(
+    payload: WebhookTestRequest,
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> WebhookTestResponse:
+    """Dispatches a diagnostic verification ping to an outbound compliance webhook."""
+    success, msg = await send_test_webhook(payload.webhook_url.strip())
+    return WebhookTestResponse(success=success, message=msg)
