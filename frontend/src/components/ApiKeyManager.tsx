@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 interface AppKey {
+  id?: string;
   key_prefix: string;
   app_name: string;
   rate_limit_per_minute: number;
@@ -11,8 +12,10 @@ interface AppKey {
 }
 
 interface CreatedKeyResponse {
+  id?: string;
   key_prefix: string;
-  api_key: string;
+  raw_key?: string;
+  api_key?: string;
   app_name: string;
   rate_limit_per_minute: number;
   created_at: string;
@@ -112,7 +115,8 @@ export default function ApiKeyManager() {
     }
   };
 
-  const sampleApiKey = createdKey?.api_key || "vrt_live_YOUR_KEY_HERE";
+  const rawSecret = createdKey?.raw_key || createdKey?.api_key || "";
+  const sampleApiKey = rawSecret || "vrt_live_YOUR_KEY_HERE";
   const sampleCurl = `curl -X POST https://mnb-veritas.onrender.com/api/veritas/v1/verify \\
   -H "Content-Type: application/json" \\
   -H "X-Veritas-Key: ${sampleApiKey}" \\
@@ -173,12 +177,12 @@ export default function ApiKeyManager() {
             <input
               type="text"
               readOnly
-              value={createdKey.api_key}
+              value={rawSecret}
               className="flex-1 rounded-lg border border-emerald-500/50 bg-[#080C0E] px-3 py-2 font-mono text-xs text-emerald-200 selection:bg-emerald-500/30 focus:outline-none"
             />
             <button
               type="button"
-              onClick={() => copyToClipboard(createdKey.api_key)}
+              onClick={() => copyToClipboard(rawSecret)}
               className="rounded-lg bg-emerald-500 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 hover:bg-emerald-400 transition"
             >
               {copiedKey ? "Copied!" : "Copy Key"}

@@ -6,7 +6,7 @@ export async function GET() {
   const apiKey = getBackendApiKey();
 
   try {
-    const res = await fetch(`${backendUrl}/v1/auth/keys`, {
+    const res = await fetch(`${backendUrl}/v1/app-keys`, {
       headers: apiKey ? { "X-Veritas-Key": apiKey } : {},
       cache: "no-store",
     });
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const res = await fetch(`${backendUrl}/v1/auth/keys`, {
+    const res = await fetch(`${backendUrl}/v1/app-keys`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

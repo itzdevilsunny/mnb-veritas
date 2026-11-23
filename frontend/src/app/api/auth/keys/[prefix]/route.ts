@@ -10,7 +10,7 @@ export async function DELETE(
   const apiKey = getBackendApiKey();
 
   try {
-    const res = await fetch(`${backendUrl}/v1/auth/keys/${encodeURIComponent(prefix)}`, {
+    const res = await fetch(`${backendUrl}/v1/app-keys/${encodeURIComponent(prefix)}`, {
       method: "DELETE",
       headers: apiKey ? { "X-Veritas-Key": apiKey } : {},
       cache: "no-store",

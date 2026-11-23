@@ -569,8 +569,14 @@ async def revoke_app_key(
     db: AsyncSession = Depends(get_db_session),
     client: AuthenticatedClient = Depends(verify_authenticated_client),
 ) -> None:
-    """Revokes a per-app API key by deactivating it."""
-    record = (await db.execute(select(VeritasAppKey).where(VeritasAppKey.id == key_id))).scalar_one_or_none()
+    """Revokes a per-app API key by deactivating it (accepts UUID id or key_prefix)."""
+    record = (
+        await db.execute(
+            select(VeritasAppKey).where(
+                (VeritasAppKey.id == key_id) | (VeritasAppKey.key_prefix == key_id)
+            )
+        )
+    ).scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"App key {key_id} not found")
     record.is_active = False
