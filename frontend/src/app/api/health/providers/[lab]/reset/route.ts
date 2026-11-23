@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const BACKEND_URL = process.env.VERITAS_API_URL ?? "http://127.0.0.1:8000";
-const BACKEND_API_KEY = process.env.VERITAS_API_KEY ?? "veritas-local-dev-key-2026";
+import { getBackendApiKey, getBackendUrl } from "@/lib/backend";
 
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ lab: string }> }
 ) {
+  const backendUrl = getBackendUrl();
+  const apiKey = getBackendApiKey();
   try {
     const { lab } = await params;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (BACKEND_API_KEY) {
-      headers["X-Veritas-Key"] = BACKEND_API_KEY;
+    if (apiKey) {
+      headers["X-Veritas-Key"] = apiKey;
     }
 
-    const res = await fetch(`${BACKEND_URL}/v1/health/providers/${lab}/reset`, {
+    const res = await fetch(`${backendUrl}/v1/health/providers/${lab}/reset`, {
       method: "POST",
       headers,
       cache: "no-store",

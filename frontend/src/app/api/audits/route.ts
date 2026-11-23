@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const BACKEND_URL = process.env.VERITAS_API_URL ?? "http://127.0.0.1:8000";
-const BACKEND_API_KEY = process.env.VERITAS_API_KEY ?? "veritas-local-dev-key-2026";
+import { getBackendUrl, getBackendApiKey } from "@/lib/backend";
 
 export async function GET(req: NextRequest) {
+  const backendUrl = getBackendUrl();
+  const apiKey = getBackendApiKey();
   const verdict = req.nextUrl.searchParams.get("verdict");
-  const url = new URL(`${BACKEND_URL}/v1/audits`);
+  const url = new URL(`${backendUrl}/v1/audits`);
   if (verdict && verdict !== "ALL") {
     url.searchParams.set("verdict", verdict);
   }
 
   try {
     const res = await fetch(url.toString(), {
-      headers: BACKEND_API_KEY ? { "X-Veritas-Key": BACKEND_API_KEY } : {},
+      headers: apiKey ? { "X-Veritas-Key": apiKey } : {},
       cache: "no-store",
     });
     const data = await res.json();

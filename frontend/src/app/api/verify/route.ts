@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { VerifyRequest, VerifyResponse } from "@/types/veritas";
-
-const BACKEND_URL = process.env.VERITAS_API_URL ?? "http://127.0.0.1:8000";
-const BACKEND_API_KEY = process.env.VERITAS_API_KEY ?? "veritas-local-dev-key-2026";
+import { getBackendUrl, getBackendApiKey } from "@/lib/backend";
 
 export async function POST(req: NextRequest) {
   try {
+    const backendUrl = getBackendUrl();
+    const apiKey = getBackendApiKey();
     const body: VerifyRequest = await req.json();
     if (!body.query || !body.query.trim()) {
       return NextResponse.json({ detail: "Query is required" }, { status: 400 });
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (BACKEND_API_KEY) {
-      headers["X-Veritas-Key"] = BACKEND_API_KEY;
+    if (apiKey) {
+      headers["X-Veritas-Key"] = apiKey;
     }
 
-    const upstream = await fetch(`${BACKEND_URL}/v1/verify`, {
+    const upstream = await fetch(`${backendUrl}/v1/verify`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
