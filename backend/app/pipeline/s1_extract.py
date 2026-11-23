@@ -1,19 +1,12 @@
 from __future__ import annotations
 
-import json
-import re
+import logging
 from app.gateway.base import LLMProvider
 from app.gateway.router import VeritasRouter
 from app.models.schemas import ExtractionBundle, Lab, SourceDoc
+from app.pipeline.jsonutil import parse_json_object, strip_fences
 
-
-def strip_fences(raw: str) -> str:
-    """Strips markdown code fences (```json ... ```) from LLM output."""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    return text.strip()
+logger = logging.getLogger("veritas.pipeline.s1_extract")
 
 
 async def extract_claims(
@@ -43,5 +36,10 @@ async def extract_claims(
     raw, provider, failover = await router.call_with_failover(
         preferred_labs, system_prompt, user_prompt
     )
-    parsed = json.loads(strip_fences(raw))
-    return ExtractionBundle.model_validate(parsed), provider, failover
+    try:
+        parsed = parse_json_object(raw)
+        return ExtractionBundle.model_validate(parsed), provider, failover
+    except Exception as exc:
+        logger.warning("Failed to parse JSON from %s output: %s. Raw: %s", provider.model, exc, raw[:200])
+        # Return empty extraction bundle safely
+        return ExtractionBundle(draft_answer="No answer possible", claims=[]), provider, failover

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import json
+import logging
 from app.gateway.router import VeritasRouter
 from app.models.schemas import Lab
-from app.pipeline.s1_extract import strip_fences
+from app.pipeline.jsonutil import parse_json_object
+
+logger = logging.getLogger("veritas.pipeline.s3_examine_llm")
 
 
 async def audit_claim_with_cross_lab_model(
@@ -32,7 +34,7 @@ async def audit_claim_with_cross_lab_model(
         raw, provider, _ = await router.call_with_failover(
             auditor_chain, system_prompt, user_prompt
         )
-        parsed = json.loads(strip_fences(raw))
+        parsed = parse_json_object(raw)
         supported = bool(parsed.get("supported", False))
         reason = parsed.get("reason", "Entailment verified.")
         auditor_str = f"{provider.lab.value}:{provider.model}"

@@ -102,21 +102,43 @@ class MockProvider(LLMProvider):
                 ]
             })
 
-        # Grounded extraction attempt from provided context
-        source_match = re.search(r"\[DOC_ID:\s*([^\|\s\]]+)[^\]]*\]\s*([^\[]+)", user_prompt)
-        if source_match:
-            doc_id = source_match.group(1).strip()
-            source_snippet = source_match.group(2).strip()
-            first_sentence = re.split(r"(?<!\d)\.(?!\d)", source_snippet)[0].strip() + "."
+        # Grounded dynamic extraction from all candidate source blocks in prompt
+        blocks = re.findall(r"\[DOC_ID:\s*([^\|\s\]]+)[^\]]*\]\s*([^\[]+)", user_prompt)
+        query_words = set(re.findall(r"[a-zA-Z0-9]{3,}", question_text))
+
+        best_sentence: str | None = None
+        best_doc_id: str | None = None
+        best_score = -1.0
+
+        for doc_id, snippet in blocks:
+            doc_id = doc_id.strip()
+            raw_sentences = re.split(r"(?<!\d)\.(?!\d)|\n+", snippet)
+            for s in raw_sentences:
+                s_clean = s.strip()
+                if len(s_clean) < 12:
+                    continue
+                s_words = set(re.findall(r"[a-zA-Z0-9]{3,}", s_clean.lower()))
+                overlap = len(query_words & s_words)
+                if overlap > 0:
+                    q_nums = set(re.findall(r"\d+", question_text))
+                    s_nums = set(re.findall(r"\d+", s_clean))
+                    num_bonus = 2.0 * len(q_nums & s_nums)
+                    score = overlap + num_bonus
+                    if score > best_score:
+                        best_score = score
+                        best_sentence = s_clean + ("." if not s_clean.endswith(".") else "")
+                        best_doc_id = doc_id
+
+        if best_sentence and best_doc_id:
             return json.dumps({
-                "draft_answer": first_sentence,
+                "draft_answer": best_sentence,
                 "claims": [
                     {
                         "claim_id": "CLM-01",
-                        "claim_text": first_sentence,
+                        "claim_text": best_sentence,
                         "is_factual": True,
-                        "verbatim_quote": first_sentence,
-                        "cited_doc_id": doc_id,
+                        "verbatim_quote": best_sentence,
+                        "cited_doc_id": best_doc_id,
                     }
                 ]
             })
