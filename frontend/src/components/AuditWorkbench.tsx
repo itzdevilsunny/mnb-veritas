@@ -24,6 +24,12 @@ export default function AuditWorkbench({
   const [generator, setGenerator] = useState<string>("auto");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [loading, setLoading] = useState(false);
+  const [streamStage, setStreamStage] = useState<{
+    stage: number;
+    name: string;
+    message: string;
+    progress: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VerifyResponse | null>(null);
   const [inspectedClaim, setInspectedClaim] = useState<string | null>(null);
@@ -139,7 +145,7 @@ export default function AuditWorkbench({
     if (generator === "xai") preferredLabs = ["xai", "anthropic"];
 
     try {
-      const res = await fetch("/api/verify", {
+      const streamRes = await fetch("/api/verify/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -150,17 +156,64 @@ export default function AuditWorkbench({
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.detail ?? `Verification request failed with status ${res.status}`);
+      if (streamRes.ok && streamRes.body) {
+        const reader = streamRes.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data:")) {
+              try {
+                const event = JSON.parse(trimmed.replace(/^data:\s*/, ""));
+                if (event.stage) {
+                  setStreamStage({
+                    stage: event.stage,
+                    name: event.name,
+                    message: event.message,
+                    progress: event.progress,
+                  });
+                }
+                if (event.result) {
+                  setResult(event.result);
+                  onVerified?.(event.result);
+                }
+              } catch {}
+            }
+          }
+        }
       } else {
-        setResult(data);
-        onVerified?.(data);
+        const res = await fetch("/api/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: q,
+            policy: p,
+            reference_date: d,
+            preferred_labs: preferredLabs,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.detail ?? `Verification request failed with status ${res.status}`);
+        } else {
+          setResult(data);
+          onVerified?.(data);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error during verification");
     } finally {
       setLoading(false);
+      setStreamStage(null);
     }
   };
 
@@ -333,6 +386,36 @@ export default function AuditWorkbench({
           <span>⚡</span>
           <span>{loading ? "EXECUTING MULTI-LAB VERIFICATION..." : "EXECUTE MULTI-LAB VERIFICATION"}</span>
         </button>
+
+        {/* Real-time Streaming Pipeline Stepper */}
+        {loading && streamStage && (
+          <div className="rounded-lg border border-emerald-500/30 bg-[#07130F] p-4 space-y-3 font-mono">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span className="font-bold text-emerald-400 uppercase tracking-wider">
+                  STAGE {streamStage.stage}: {streamStage.name}
+                </span>
+              </div>
+              <span className="text-zinc-400 text-[11px]">{streamStage.progress}%</span>
+            </div>
+
+            {/* Stepper Progress Bar */}
+            <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-300 ease-out"
+                style={{ width: `${streamStage.progress}%` }}
+              ></div>
+            </div>
+
+            <p className="text-[11px] text-zinc-300 leading-relaxed">
+              {streamStage.message}
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-rose-800/80 bg-rose-950/40 p-3 font-mono text-xs text-rose-300">

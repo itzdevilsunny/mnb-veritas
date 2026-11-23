@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from datetime import date, datetime
 from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -527,6 +529,106 @@ async def verify_query(
         warnings=report.warnings,
         created_at=audit_entry.created_at,
     )
+
+
+@router.post("/verify/stream")
+async def verify_query_stream(
+    payload: VerifyApiRequest,
+    db: AsyncSession = Depends(get_db_session),
+    llm_router: VeritasRouter = Depends(get_veritas_router),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+):
+    """
+    Streams Server-Sent Events (SSE) detailing each pipeline stage in real-time,
+    ending with the full verification report and persisting telemetry to the audit log.
+    """
+    db_sources = (await db.execute(select(VeritasSource).where(VeritasSource.is_active == True))).scalars().all()
+    merged_sources: dict[str, SourceDoc] = {}
+    for s in db_sources:
+        merged_sources[s.doc_id] = SourceDoc(
+            doc_id=s.doc_id,
+            title=s.title,
+            text=s.text,
+            valid_from=s.valid_from,
+            valid_until=s.valid_until,
+            is_primary=s.is_primary,
+            metadata=s.metadata_json or {},
+        )
+
+    if payload.inline_sources:
+        for s in payload.inline_sources:
+            merged_sources[s.doc_id] = SourceDoc(
+                doc_id=s.doc_id,
+                title=s.title,
+                text=s.text,
+                valid_from=s.valid_from,
+                valid_until=s.valid_until,
+                is_primary=s.is_primary,
+                metadata=s.metadata,
+            )
+
+    start_time = time.perf_counter()
+    pipeline = VeritasPipeline(router=llm_router, sources=list(merged_sources.values()))
+
+    async def event_generator():
+        final_event = None
+        async for event in pipeline.run_stream(
+            query=payload.query,
+            policy=payload.policy,
+            preferred_labs=payload.preferred_labs,
+            ref_date=payload.reference_date,
+            source_ids=payload.source_ids,
+        ):
+            final_event = event
+            yield f"data: {json.dumps(event, default=str)}\n\n"
+
+        if final_event and final_event.get("stage") == 5:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            rep = final_event.get("report", {})
+            audit_id = f"aud_{hashlib.sha256(f'{payload.query}_{time.time()}'.encode()).hexdigest()[:8]}"
+            claim_audits_raw = rep.get("claim_audits", [])
+            telemetry = GatewayTelemetry(
+                primary_model=rep.get("model_used", "unknown"),
+                auditor_model=rep.get("auditor_model_used"),
+                failover_triggered=getattr(llm_router, "last_failover_occurred", False),
+                latency_ms=elapsed_ms,
+                prompt_tokens=rep.get("tokens_in", 0),
+                completion_tokens=rep.get("tokens_out", 0),
+                estimated_cost_usd=rep.get("estimated_cost_usd", 0.0),
+                numeric_concord_pct=rep.get("numeric_concord_pct", 100.0),
+                temporal_bound="VALID" if not any(c.get("source_expired") for c in claim_audits_raw) else "EXPIRED_FLAGGED",
+            )
+            audit_entry = VeritasAuditLog(
+                audit_id=audit_id,
+                query_text=payload.query,
+                verdict=rep.get("verdict", "ABSTAIN"),
+                answer=rep.get("answer", ""),
+                policy_applied=payload.policy.value,
+                primary_model=telemetry.primary_model,
+                auditor_model=telemetry.auditor_model,
+                failover_triggered=telemetry.failover_triggered,
+                latency_ms=elapsed_ms,
+                estimated_cost_usd=rep.get("estimated_cost_usd", 0.0),
+                claim_audits=claim_audits_raw,
+                warnings=rep.get("warnings", []),
+                created_at=datetime.now(),
+            )
+            db.add(audit_entry)
+            await db.commit()
+
+            result_out = {
+                "audit_id": audit_id,
+                "verdict": rep.get("verdict"),
+                "answer": rep.get("answer"),
+                "policy_applied": payload.policy.value,
+                "telemetry": telemetry.model_dump(),
+                "claim_audits": claim_audits_raw,
+                "warnings": rep.get("warnings", []),
+                "created_at": audit_entry.created_at.isoformat(),
+            }
+            yield f"data: {json.dumps({'stage': 5, 'name': 'COMPLETE', 'progress': 100, 'result': result_out}, default=str)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 # =====================================================================
