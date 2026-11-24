@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { Download, Shield } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, FileText, Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import type { AuditChainStatus, AuditRow } from "@/types/veritas";
 import { ClaimCard } from "./ClaimCard";
@@ -52,7 +52,7 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
           <h2 className="text-base font-semibold">Audit log</h2>
           <p className="text-xs text-zinc-400">Append-only record of every decision, model pairing and quote check.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 font-mono text-xs">
           <select
             value={verdict}
             onChange={(e) => setVerdict(e.target.value)}
@@ -64,6 +64,23 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
               <option key={v}>{v}</option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => {
+              if (!rows.length) return;
+              const blob = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `veritas_audit_trail_${new Date().toISOString().slice(0, 10)}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            disabled={!rows.length}
+            className="rounded border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            Export JSON
+          </button>
           <button type="button" onClick={() => { void load(); void checkChain(); }} className={btnGhost}>
             Refresh
           </button>
@@ -151,7 +168,10 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
                       ${r.estimated_cost_usd?.toFixed(4) ?? "0.0000"}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-[11px] text-zinc-400">
-                      {r.claim_audits?.length || 0} claims {isOpen ? "▲" : "▼"}
+                      <span className="inline-flex items-center gap-1">
+                        <span>{r.claim_audits?.length || 0} claims</span>
+                        {isOpen ? <ChevronUp className="h-3 w-3 text-zinc-400" /> : <ChevronDown className="h-3 w-3 text-zinc-400" />}
+                      </span>
                     </td>
                   </tr>
                   {isOpen && (
@@ -220,8 +240,8 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
             })}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-zinc-500">
-                  No audits recorded yet. Run a verification in the Playground.
+                <td colSpan={6} className="p-8 text-center font-mono text-xs text-zinc-500">
+                  No audit records found for the current filter. Execute a verification query in the Audit Workbench or run the Benchmark Lab to generate cryptographic audit records.
                 </td>
               </tr>
             )}
