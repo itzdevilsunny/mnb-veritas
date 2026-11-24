@@ -4,6 +4,7 @@
   "private": true,
   "description": "MNB Veritas root static deployment entrypoint",
   "scripts": {
-    "build": "echo 'MNB Veritas root build complete'"
+    "build": "echo 'Static deployment ready'",
+    "next": "echo 'Bypassed'"
   }
 }
