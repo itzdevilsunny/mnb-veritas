@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS veritas_audit_logs (
     auditor_model VARCHAR(100),
     failover_triggered BOOLEAN NOT NULL DEFAULT false,
     latency_ms INT NOT NULL,
-    estimated_cost_usd DOUBLE PRECISION DEFAULT 0.0035,
+    estimated_cost_usd DOUBLE PRECISION DEFAULT 0.0,
     claim_audits JSONB NOT NULL DEFAULT '[]'::jsonb,
     warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
     prev_hash VARCHAR(64),

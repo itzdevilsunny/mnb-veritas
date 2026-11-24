@@ -272,8 +272,11 @@ async def lifespan(app: FastAPI):
     # Startup: ensure tables exist
     async with engine.begin() as conn:
         if engine.dialect.name == "postgresql":
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            try:
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            except Exception as ext_err:
+                logger.warning("Postgres extensions initialization non-fatal: %s", ext_err)
         await conn.run_sync(Base.metadata.create_all)
 
         # Handle SQLite column migrations if database already existed
