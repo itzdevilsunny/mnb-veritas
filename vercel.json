@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "buildCommand": "echo 'MNB Veritas root static deployment ready'",
+  "outputDirectory": "public"
+}

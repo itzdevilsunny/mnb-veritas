@@ -1,0 +1,9 @@
+{
+  "name": "mnb-veritas-root",
+  "version": "1.4.0",
+  "private": true,
+  "description": "MNB Veritas root static deployment entrypoint",
+  "scripts": {
+    "build": "echo 'MNB Veritas root build complete'"
+  }
+}
