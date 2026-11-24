@@ -129,6 +129,19 @@ async def test_human_review_signoff_endpoint() -> None:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
 
+            # Seed approved source first so retrieval succeeds deterministically
+            await client.post(
+                "/v1/sources",
+                json={
+                    "doc_id": "DOC-SEBI-01",
+                    "title": "SEBI Liquid Cushion Regulations",
+                    "text": "Category I and II Alternative Investment Funds (AIFs) must maintain minimum 10 percent unencumbered liquid cushion for emergency exits.",
+                    "valid_from": "2024-01-01",
+                    "authority_tier": "regulatory",
+                },
+                headers=headers,
+            )
+
             # 1. Trigger an escalation query (contains 'statutory' or 'critical' in query)
             verify_res = await client.post(
                 "/v1/verify",

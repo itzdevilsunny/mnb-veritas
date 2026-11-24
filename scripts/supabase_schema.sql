@@ -108,7 +108,18 @@ BEGIN
     END IF;
 END $$;
 
--- 6. Row Level Security (RLS) Policies
+-- 6. Ensure Supabase Auth Roles exist (for portable execution on both vanilla Postgres & Supabase Cloud)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
+        CREATE ROLE service_role;
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon;
+    END IF;
+END $$;
+
+-- 7. Row Level Security (RLS) Policies
 ALTER TABLE veritas_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE veritas_app_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE veritas_audit_logs ENABLE ROW LEVEL SECURITY;
