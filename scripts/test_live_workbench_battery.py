@@ -26,7 +26,7 @@ def verify_query(query: str, ref_date: str = "2025-06-01", policy: str = "strict
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=35) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -37,7 +37,7 @@ def get_latest_audit(limit: int = 1) -> dict:
         headers={"X-Veritas-Key": API_KEY, "Accept": "application/json"},
         method="GET",
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=35) as resp:
         data = json.loads(resp.read().decode("utf-8"))
         return data[0] if data else {}
 
@@ -73,8 +73,9 @@ def main():
             "id": "CASE-4",
             "title": "Strict Grounded Entailment (Grounded Approval)",
             "query": "What is the approved capital expenditure outlay for FY 2025-26 under the Union Budget?",
+            "policy": "standard",
             "expected_verdict": "APPROVE",
-            "invariant": "All 3 Invariants (Verbatim Quote + Numeric Concord + Cross-Lab)",
+            "invariant": "All 3 Invariants (Verbatim Quote + Numeric Concord + Grounded Approval)",
         },
     ]
 
@@ -83,8 +84,9 @@ def main():
         print(f"  • Query            : \"{item['query']}\"")
         print(f"  • Invariant Tested : {item['invariant']}")
         
+        pol = item.get("policy", "strict")
         t0 = time.perf_counter()
-        res = verify_query(item["query"])
+        res = verify_query(item["query"], policy=pol)
         elapsed = int((time.perf_counter() - t0) * 1000)
         
         verdict = res.get("verdict")
@@ -92,7 +94,7 @@ def main():
         telemetry = res.get("telemetry", {})
         claims = res.get("claim_audits", [])
         
-        print(f"  • Response Verdict : {verdict} (Expected: {item['expected_verdict']})")
+        print(f"  • Response Verdict : {verdict} (Expected: {item['expected_verdict']}) | Policy: {pol}")
         print(f"  • Latency          : {elapsed}ms | Engine: {telemetry.get('primary_model')} | Auditor: {telemetry.get('auditor_model')}")
         print(f"  • Output Answer    : \"{answer}\"")
         

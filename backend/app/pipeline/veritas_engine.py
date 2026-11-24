@@ -4,7 +4,6 @@ from datetime import date
 from app.gateway.adapters import (
     AnthropicProvider,
     GeminiProvider,
-    MockProvider,
     OpenAICompatProvider,
 )
 from app.gateway.base import LLMProvider
@@ -143,11 +142,11 @@ class VeritasPipeline:
                             f"Query queried quantity {q_val:g} contradicts verified claim quantity {[round(x, 2) for x in c_quants]}"
                         )
 
-            # Invariant 3: Cross-Lab Secondary Model Audit
             cross_lab_ok = False
             if quote_ok and not num_bad and not fy_bad:
+                gen_lab = gen_provider.lab if gen_provider else Lab.GOOGLE
                 cross_lab_ok, audit_reason, audit_model = await audit_claim_with_cross_lab_model(
-                    self.router, claim.claim_text, claim.verbatim_quote or "", gen_provider.lab
+                    self.router, claim.claim_text, claim.verbatim_quote or "", gen_lab
                 )
                 if audit_model:
                     auditor_model_used = audit_model
@@ -190,7 +189,7 @@ class VeritasPipeline:
         return build_verification_report(
             verdict=verdict,
             final_answer=final_answer,
-            model_used=f"{gen_provider.lab.value}:{gen_provider.model}",
+            model_used=f"{gen_provider.lab.value}:{gen_provider.model}" if gen_provider else "provider_exhausted",
             auditor_model_used=auditor_model_used,
             claim_audits=audits,
             warnings=warnings,
@@ -230,10 +229,11 @@ class VeritasPipeline:
         bundle, gen_provider, failover = await extract_claims(
             self.router, query, candidate_docs, labs
         )
+        gen_desc = f"{gen_provider.lab.value}:{gen_provider.model}" if gen_provider else "unreachable"
         yield {
             "stage": 2,
             "name": "EXTRACTION",
-            "message": f"Extracted {len(bundle.claims)} claims using {gen_provider.lab.value}:{gen_provider.model}.",
+            "message": f"Extracted {len(bundle.claims)} claims using {gen_desc}.",
             "progress": 50,
         }
 
@@ -288,8 +288,9 @@ class VeritasPipeline:
 
             cross_lab_ok = False
             if quote_ok and not num_bad and not fy_bad:
+                gen_lab = gen_provider.lab if gen_provider else Lab.GOOGLE
                 cross_lab_ok, audit_reason, audit_model = await audit_claim_with_cross_lab_model(
-                    self.router, claim.claim_text, claim.verbatim_quote or "", gen_provider.lab
+                    self.router, claim.claim_text, claim.verbatim_quote or "", gen_lab
                 )
                 if audit_model:
                     auditor_model_used = audit_model
@@ -342,7 +343,7 @@ class VeritasPipeline:
         report = build_verification_report(
             verdict=verdict,
             final_answer=final_answer,
-            model_used=f"{gen_provider.lab.value}:{gen_provider.model}",
+            model_used=f"{gen_provider.lab.value}:{gen_provider.model}" if gen_provider else "provider_exhausted",
             auditor_model_used=auditor_model_used,
             claim_audits=audits,
             warnings=warnings,
@@ -367,7 +368,6 @@ __all__ = [
     "ClaimAuditResult",
     "VerificationReport",
     "LLMProvider",
-    "MockProvider",
     "AnthropicProvider",
     "OpenAICompatProvider",
     "GeminiProvider",

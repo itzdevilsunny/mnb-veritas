@@ -27,15 +27,23 @@ def evaluate_policy_verdict(
         )
 
     for a in factual_audits:
-        # Number or FY contradictions
+        # Number or FY contradictions always force abstention across all policies
         if a.numeric_mismatch or a.fy_mismatch:
-            if policy == PolicyMode.STRICT:
-                return Verdict.ABSTAIN, NO_ANSWER_POSSIBLE, a.reasons
             return Verdict.ABSTAIN, NO_ANSWER_POSSIBLE, a.reasons
 
-        # Uncited or missing verbatim quote
-        if not a.quote_verified or not a.cross_lab_supported:
-            return Verdict.ABSTAIN, NO_ANSWER_POSSIBLE, a.reasons
+        # Uncited or missing verbatim quote always forces abstention
+        if not a.quote_verified:
+            return Verdict.ABSTAIN, NO_ANSWER_POSSIBLE, a.reasons or ["Uncited or missing verbatim quote in approved sources."]
+
+        # Cross-lab audit check:
+        # - STRICT: Mandatory. If secondary lab unconfirmed or unavailable -> ABSTAIN ("No answer possible")
+        # - BALANCED: If unconfirmed -> flag with qualification caveat
+        # - STANDARD: Cross-lab audit is optional; single-lab verified quote approved
+        if not a.cross_lab_supported:
+            if policy == PolicyMode.STRICT:
+                return Verdict.ABSTAIN, NO_ANSWER_POSSIBLE, a.reasons or ["Cross-lab audit could not independently verify claim."]
+            elif policy == PolicyMode.BALANCED:
+                warnings.append("Cross-lab audit unconfirmed or unavailable from secondary lab.")
 
         if a.source_expired:
             warnings.extend(a.reasons)

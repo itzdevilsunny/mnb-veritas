@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.gateway.adapters import MockProvider
+from tests.mocks import MockProvider
 from app.gateway.router import VeritasRouter
 from app.main import app
 from app.models.schemas import (
@@ -118,37 +118,46 @@ async def test_scoped_app_key_enforces_policy_restriction() -> None:
 
 @pytest.mark.asyncio
 async def test_human_review_signoff_endpoint() -> None:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
+    from app.api.routes import get_veritas_router
+    test_router = VeritasRouter({
+        Lab.ANTHROPIC: MockProvider(Lab.ANTHROPIC, "claude-3-5-sonnet"),
+        Lab.OPENAI: MockProvider(Lab.OPENAI, "gpt-4o-mini"),
+    })
+    app.dependency_overrides[get_veritas_router] = lambda: test_router
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
 
-        # 1. Trigger an escalation query (contains 'statutory' or 'critical' in query)
-        verify_res = await client.post(
-            "/v1/verify",
-            json={
-                "query": "What is the statutory liquid cushion requirement for Category I Alternative Investment Funds?",
-                "policy": "strict",
-                "reference_date": "2025-01-15",
-            },
-            headers=headers,
-        )
-        assert verify_res.status_code == 200
-        v_data = verify_res.json()
-        audit_id = v_data["audit_id"]
-        assert v_data["verdict"] == "ESCALATE"
+            # 1. Trigger an escalation query (contains 'statutory' or 'critical' in query)
+            verify_res = await client.post(
+                "/v1/verify",
+                json={
+                    "query": "What is the statutory liquid cushion requirement for Category I Alternative Investment Funds?",
+                    "policy": "strict",
+                    "reference_date": "2025-01-15",
+                },
+                headers=headers,
+            )
+            assert verify_res.status_code == 200
+            v_data = verify_res.json()
+            audit_id = v_data["audit_id"]
+            assert v_data["verdict"] == "ESCALATE"
 
-        # 2. Compliance Officer signs off on the escalated audit
-        review_res = await client.post(
-            f"/v1/audits/{audit_id}/review",
-            json={
-                "decision": "APPROVE",
-                "reviewer": "Officer Ananya Sen (Lead Compliance)",
-                "notes": "Verified against SEBI Circular Ref CIR/IMD/DF/2024.",
-            },
-            headers=headers,
-        )
-        assert review_res.status_code == 200
-        r_data = review_res.json()
-        assert r_data["previous_verdict"] == "ESCALATE"
-        assert r_data["new_verdict"] == "APPROVE"
-        assert r_data["is_safe_to_publish"] is True
+            # 2. Compliance Officer signs off on the escalated audit
+            review_res = await client.post(
+                f"/v1/audits/{audit_id}/review",
+                json={
+                    "decision": "APPROVE",
+                    "reviewer": "Officer Ananya Sen (Lead Compliance)",
+                    "notes": "Verified against SEBI Circular Ref CIR/IMD/DF/2024.",
+                },
+                headers=headers,
+            )
+            assert review_res.status_code == 200
+            r_data = review_res.json()
+            assert r_data["previous_verdict"] == "ESCALATE"
+            assert r_data["new_verdict"] == "APPROVE"
+            assert r_data["is_safe_to_publish"] is True
+    finally:
+        app.dependency_overrides.pop(get_veritas_router, None)

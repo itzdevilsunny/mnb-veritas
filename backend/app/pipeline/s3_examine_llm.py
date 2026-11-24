@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from app.gateway.moe_router import MoERoute
 from app.gateway.router import VeritasRouter
 from app.models.schemas import Lab
 from app.pipeline.jsonutil import parse_json_object
@@ -15,13 +16,13 @@ async def audit_claim_with_cross_lab_model(
     generator_lab: Lab,
 ) -> tuple[bool, str, str | None]:
     """
-    Stage 3B: Cross-Lab Secondary Model Audit.
-    Ensures an independent model verifies semantic entailment.
+    Stage 3B: Cross-Lab Secondary Model Audit via MoE Deep Audit Expert.
+    Ensures an independent model from a distinct lab verifies semantic entailment.
     Returns: (is_supported, reason, auditor_model_string)
     """
     auditor_chain = router.get_auditor_chain(generator_lab)
     if not auditor_chain:
-        return True, "No distinct secondary lab available; skipped cross-model check.", None
+        return False, "No distinct secondary lab available or configured for cross-lab auditing.", None
 
     system_prompt = (
         "You are an independent compliance auditor from a separate AI lab. "
@@ -32,10 +33,11 @@ async def audit_claim_with_cross_lab_model(
 
     try:
         raw, provider, _ = await router.call_with_failover(
-            auditor_chain,
-            system_prompt,
-            user_prompt,
+            preferred_labs=auditor_chain,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             excluded_labs={generator_lab},
+            route=MoERoute.DEEP_AUDIT,
         )
         parsed = parse_json_object(raw)
         supported = bool(parsed.get("supported", False))
@@ -43,4 +45,6 @@ async def audit_claim_with_cross_lab_model(
         auditor_str = f"{provider.lab.value}:{provider.model}"
         return supported, reason, auditor_str
     except Exception as exc:
-        return False, f"Cross-lab audit error: {exc}", None
+        logger.warning("Zero-PII Telemetry: Cross-lab audit failed across secondary chain %s: %s", auditor_chain, exc)
+        return False, f"Cross-lab auditor from distinct lab unreachable or exhausted: {exc}", None
+

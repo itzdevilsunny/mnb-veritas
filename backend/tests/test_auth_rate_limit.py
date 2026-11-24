@@ -10,7 +10,8 @@ from app.api.routes import get_db_session, get_veritas_router, router as veritas
 from app.core.auth_rate_limit import RedisRateLimiter, rate_limiter
 from app.core.config import get_settings
 from app.models.db import Base
-from veritas_engine import Lab, MockProvider, VeritasRouter
+from tests.mocks import MockProvider
+from veritas_engine import Lab, VeritasRouter
 
 
 @pytest_asyncio.fixture

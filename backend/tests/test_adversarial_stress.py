@@ -6,7 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import get_settings
-from app.gateway.adapters import MockProvider
+from tests.mocks import MockProvider
 from app.gateway.router import VeritasRouter
 from app.main import app
 from app.models.schemas import Lab, PolicyMode, Verdict
@@ -170,28 +170,37 @@ async def test_cross_lab_auditor_never_matches_primary_generator() -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_verify_requests_without_starvation() -> None:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
+    from app.api.routes import get_veritas_router
+    test_router = VeritasRouter({
+        Lab.ANTHROPIC: MockProvider(Lab.ANTHROPIC, "claude-3-5-sonnet"),
+        Lab.OPENAI: MockProvider(Lab.OPENAI, "gpt-4o-mini"),
+    })
+    app.dependency_overrides[get_veritas_router] = lambda: test_router
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            headers = {"X-Veritas-Key": "veritas-local-dev-key-2026"}
 
-        async def send_verify(idx: int):
-            return await client.post(
-                "/v1/verify",
-                json={
-                    "query": "What is the policy repo rate?",
-                    "policy": "strict",
-                    "reference_date": "2025-01-15",
-                },
-                headers=headers,
-            )
+            async def send_verify(idx: int):
+                return await client.post(
+                    "/v1/verify",
+                    json={
+                        "query": "What is the policy repo rate?",
+                        "policy": "strict",
+                        "reference_date": "2025-01-15",
+                    },
+                    headers=headers,
+                )
 
-        # Run 8 concurrent verification requests
-        responses = await asyncio.gather(*(send_verify(i) for i in range(8)))
-        for resp in responses:
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "verdict" in data
-            assert data["verdict"] in ["APPROVE", "QUALIFY", "ABSTAIN"]
+            # Run 8 concurrent verification requests
+            responses = await asyncio.gather(*(send_verify(i) for i in range(8)))
+            for resp in responses:
+                assert resp.status_code == 200
+                data = resp.json()
+                assert "verdict" in data
+                assert data["verdict"] in ["APPROVE", "QUALIFY", "ABSTAIN"]
+    finally:
+        app.dependency_overrides.pop(get_veritas_router, None)
 
 
 # =====================================================================

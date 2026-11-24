@@ -69,13 +69,12 @@ async def get_providers_health(
             lab_enum = Lab(lab_key)
             provider = router_inst.providers.get(lab_enum)
             if provider:
-                from app.gateway.adapters import MockProvider
                 p_info["model"] = provider.model
                 p_info["configured"] = True
-                p_info["backend"] = "mock" if isinstance(provider, MockProvider) else "live_api"
+                p_info["backend"] = "live_api"
             else:
                 p_info["configured"] = False
-                p_info["backend"] = "none"
+                p_info["backend"] = "unconfigured"
         except Exception:
             pass
 
@@ -549,9 +548,12 @@ async def verify_query(
 
     # 4. Zero-PII Telemetry Logging (Prompts & sensitive texts are excluded)
     audit_id = f"aud_{hashlib.sha256(f'{payload.query}_{time.time()}'.encode()).hexdigest()[:8]}"
+    last_moe = getattr(llm_router, "last_telemetry", None)
     telemetry = GatewayTelemetry(
         primary_model=report.model_used,
         auditor_model=report.auditor_model_used,
+        moe_route=last_moe.moe_route.value if last_moe else "deterministic_veto",
+        circuit_state=last_moe.circuit_state if last_moe else "CLOSED",
         failover_triggered=getattr(llm_router, "last_failover_occurred", False),
         latency_ms=elapsed_ms,
         prompt_tokens=report.tokens_in,
@@ -670,9 +672,12 @@ async def verify_query_stream(
             rep = final_event.get("report", {})
             audit_id = f"aud_{hashlib.sha256(f'{payload.query}_{time.time()}'.encode()).hexdigest()[:8]}"
             claim_audits_raw = rep.get("claim_audits", [])
+            last_moe = getattr(llm_router, "last_telemetry", None)
             telemetry = GatewayTelemetry(
                 primary_model=rep.get("model_used", "unknown"),
                 auditor_model=rep.get("auditor_model_used"),
+                moe_route=last_moe.moe_route.value if last_moe else "fast_extraction",
+                circuit_state=last_moe.circuit_state if last_moe else "CLOSED",
                 failover_triggered=getattr(llm_router, "last_failover_occurred", False),
                 latency_ms=elapsed_ms,
                 prompt_tokens=rep.get("tokens_in", 0),

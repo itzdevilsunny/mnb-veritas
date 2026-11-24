@@ -59,6 +59,8 @@ export type ClaimAuditItem = ClaimAudit;
 export interface GatewayTelemetry {
   primary_model: string;
   auditor_model: string | null;
+  moe_route?: string;
+  circuit_state?: string;
   failover_triggered: boolean;
   failed_attempts?: string[];
   latency_ms: number;

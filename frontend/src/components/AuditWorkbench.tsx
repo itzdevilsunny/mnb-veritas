@@ -651,18 +651,31 @@ export default function AuditWorkbench({
               </div>
             )}
 
-            {/* Metrics 2x3 Grid */}
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-3 font-mono text-[11px]">
+            {/* Metrics 4x2 Grid */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4 font-mono text-[11px]">
               <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">
                 <div className="text-[10px] text-zinc-500 uppercase">GEN LAB</div>
-                <div className="font-semibold text-zinc-200 mt-0.5">
+                <div className="font-semibold text-zinc-200 mt-0.5 truncate">
                   {result.telemetry.primary_model}
                 </div>
               </div>
               <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">
                 <div className="text-[10px] text-zinc-500 uppercase">CROSS AUDITOR</div>
-                <div className="font-semibold text-zinc-200 mt-0.5">
+                <div className="font-semibold text-zinc-200 mt-0.5 truncate">
                   {result.telemetry.auditor_model ?? "None (Single Lab)"}
+                </div>
+              </div>
+              <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">
+                <div className="text-[10px] text-zinc-500 uppercase">MoE ROUTE</div>
+                <div className="font-semibold text-cyan-400 mt-0.5 uppercase tracking-wide">
+                  {result.telemetry.moe_route ?? "fast_extraction"}
+                </div>
+              </div>
+              <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">
+                <div className="text-[10px] text-zinc-500 uppercase">CIRCUIT HEALTH</div>
+                <div className="font-semibold text-emerald-400 mt-0.5 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  {result.telemetry.circuit_state ?? "CLOSED"}
                 </div>
               </div>
               <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">
@@ -688,7 +701,7 @@ export default function AuditWorkbench({
               <div className="rounded-md border border-zinc-800/80 bg-[#0B0F12] p-2.5">
                 <div className="text-[10px] text-zinc-500 uppercase">TEMPORAL BOUND</div>
                 <div className="font-semibold text-zinc-200 mt-0.5">
-                  {result.telemetry.temporal_bound ?? "VALID (FY25-26)"}
+                  {result.telemetry.temporal_bound ?? "VALID"}
                 </div>
               </div>
             </div>

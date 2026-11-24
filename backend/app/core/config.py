@@ -17,10 +17,25 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     XAI_API_KEY: str | None = None
 
-    # Model IDs (specifying requested aliases with production fallback)
+    # Dynamic Model IDs per Lab (Fast Extraction vs Deep Audit Expert)
+    DEFAULT_ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
+    FAST_ANTHROPIC_MODEL: str = "claude-3-5-haiku-20241022"
+    AUDITOR_ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
     ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
+
+    DEFAULT_OPENAI_MODEL: str = "gpt-4o-mini"
+    FAST_OPENAI_MODEL: str = "gpt-4o-mini"
+    AUDITOR_OPENAI_MODEL: str = "gpt-4o"
     OPENAI_MODEL: str = "gpt-4o-mini"
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+
+    DEFAULT_GEMINI_MODEL: str = "gemini-3-flash-preview"
+    FAST_GEMINI_MODEL: str = "gemini-3-flash-preview"
+    AUDITOR_GEMINI_MODEL: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL: str = "gemini-3-flash-preview"
+
+    DEFAULT_XAI_MODEL: str = "grok-2"
+    FAST_XAI_MODEL: str = "grok-2"
+    AUDITOR_XAI_MODEL: str = "grok-2"
     XAI_MODEL: str = "grok-2"
 
     # Governance & Auth

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-# Export VeritasPipeline as orchestrator
+# Export VeritasPipeline and MoERouter as orchestrator
+from app.gateway.moe_router import MoERoute, MoERouter, MoETelemetry
 from app.pipeline.veritas_engine import (
     NO_ANSWER_POSSIBLE,
     SourceDoc,
@@ -13,6 +14,9 @@ from app.pipeline.veritas_engine import (
 )
 
 __all__ = [
+    "MoERoute",
+    "MoERouter",
+    "MoETelemetry",
     "NO_ANSWER_POSSIBLE",
     "SourceDoc",
     "VeritasPipeline",

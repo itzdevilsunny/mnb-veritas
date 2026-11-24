@@ -130,7 +130,9 @@ class SourceOut(BaseModel):
 
 class GatewayTelemetry(BaseModel):
     primary_model: str
-    auditor_model: str | None
+    auditor_model: str | None = None
+    moe_route: str = "fast_extraction"
+    circuit_state: str = "CLOSED"
     failover_triggered: bool = False
     latency_ms: int
     prompt_tokens: int = 0
@@ -138,6 +140,7 @@ class GatewayTelemetry(BaseModel):
     estimated_cost_usd: float = 0.0
     numeric_concord_pct: float = 100.0
     temporal_bound: str = "VALID"
+
 
 
 class VerifyApiRequest(BaseModel):

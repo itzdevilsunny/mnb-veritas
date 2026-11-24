@@ -34,13 +34,20 @@ async def extract_claims(
         "If a claim involves statutory capital thresholds, sovereign guarantees, or critical regulatory mandates, set is_critical to true."
     )
     user_prompt = f"Question: {query}\n\nApproved Sources:\n{context_block or 'NONE'}"
-    raw, provider, failover = await router.call_with_failover(
-        preferred_labs, system_prompt, user_prompt
-    )
+    try:
+        raw, provider, failover = await router.call_with_failover(
+            preferred_labs, system_prompt, user_prompt, query=query
+        )
+    except Exception as exc:
+        logger.warning("Zero-PII Telemetry: Extraction failed across all real providers: %s", exc)
+        return ExtractionBundle(draft_answer="No answer possible", claims=[]), None, False
+
     try:
         parsed = parse_json_object(raw)
         return ExtractionBundle.model_validate(parsed), provider, failover
     except Exception as exc:
-        logger.warning("Failed to parse JSON from %s output: %s. Raw: %s", provider.model, exc, raw[:200])
+        m_name = getattr(provider, "model", "unknown")
+        logger.warning("Failed to parse JSON from %s output: %s.", m_name, exc)
         # Return empty extraction bundle safely
         return ExtractionBundle(draft_answer="No answer possible", claims=[]), provider, failover
+

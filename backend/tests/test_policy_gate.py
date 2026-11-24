@@ -4,9 +4,9 @@ import json
 from datetime import date
 import pytest
 
+from tests.mocks import MockProvider
 from veritas_engine import (
     Lab,
-    MockProvider,
     PolicyMode,
     SourceDoc,
     Verdict,

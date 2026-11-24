@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api.routes import get_db_session, get_veritas_router, router as veritas_router
 from app.core.config import get_settings
 from app.models.db import Base
-from veritas_engine import Lab, MockProvider, VeritasRouter
+from tests.mocks import MockProvider
+from veritas_engine import Lab, VeritasRouter
 
 
 def _build_sample_pdf_bytes(lines_per_page: list[list[str]]) -> bytes:
