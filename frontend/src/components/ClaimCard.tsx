@@ -1,7 +1,12 @@
+"use client";
+
+import { useState } from "react";
 import type { ClaimAudit } from "@/types/veritas";
+import { ClaimProvenanceDAG } from "./ClaimProvenanceDAG";
 import { Chip } from "./ui";
 
 export function ClaimCard({ item }: { item: ClaimAudit }) {
+  const [showDAG, setShowDAG] = useState(false);
   const passed =
     item.is_factual && item.quote_verified && !item.numeric_mismatch && !item.fy_mismatch && item.cross_lab_supported;
   const tag = !item.is_factual ? "OPINION" : item.included_in_answer ? "IN ANSWER" : passed ? "VERIFIED" : "REJECTED";
@@ -21,7 +26,16 @@ export function ClaimCard({ item }: { item: ClaimAudit }) {
           </div>
           <p className="text-sm font-medium text-zinc-100">{item.claim_text}</p>
         </div>
-        <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${tagCls}`}>{tag}</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDAG(!showDAG)}
+            className="rounded border border-zinc-700 bg-zinc-800/80 px-2 py-0.5 text-[10px] font-mono text-zinc-300 hover:bg-zinc-700 transition"
+          >
+            {showDAG ? "DAG ▲" : "DAG ▼"}
+          </button>
+          <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${tagCls}`}>{tag}</span>
+        </div>
       </div>
 
       {item.is_factual && (
@@ -31,6 +45,17 @@ export function ClaimCard({ item }: { item: ClaimAudit }) {
           <Chip ok={!item.fy_mismatch}>financial year: {item.fy_mismatch ? "mismatch" : "ok"}</Chip>
           <Chip ok={item.cross_lab_status === "entailed" || item.cross_lab_supported}>cross-lab: {item.cross_lab_status ?? (item.cross_lab_supported ? "entailed" : "not entailed")}</Chip>
           <Chip ok={item.source_status === "valid" || !item.source_expired}>source: {(item.source_status ?? (item.source_expired ? "expired" : "valid")).replace("_", " ")}</Chip>
+        </div>
+      )}
+
+      {showDAG && (
+        <div className="pt-1">
+          <ClaimProvenanceDAG
+            claim={item}
+            overallVerdict={passed ? "APPROVE" : "ABSTAIN"}
+            auditorModel={item.cross_lab_supported ? "Entailed" : null}
+            sourceAuthorityTier="regulatory"
+          />
         </div>
       )}
 

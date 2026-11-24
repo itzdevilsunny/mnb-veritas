@@ -156,21 +156,43 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
                   {isOpen && (
                     <tr className="bg-zinc-950/60">
                       <td colSpan={6} className="space-y-3 p-4">
-                        {(r.prev_hash || r.record_hash) && (
-                          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] pb-1 border-b border-zinc-800/60">
-                            <span className="text-zinc-500 font-semibold tracking-wider uppercase text-[10px]">Audit Chain Proof:</span>
-                            {r.prev_hash && (
-                              <span className="rounded border border-zinc-800 bg-zinc-900/90 px-2 py-0.5 text-zinc-400">
-                                <span className="text-zinc-500">Prev:</span> {r.prev_hash === "GENESIS" ? "GENESIS" : `${r.prev_hash.slice(0, 12)}…`}
-                              </span>
-                            )}
-                            {r.record_hash && (
-                              <span className="rounded border border-emerald-900/50 bg-emerald-950/30 px-2 py-0.5 text-emerald-300">
-                                <span className="text-emerald-500/80">Hash:</span> {r.record_hash.slice(0, 16)}…
-                              </span>
-                            )}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-zinc-800/60">
+                          {(r.prev_hash || r.record_hash) && (
+                            <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+                              <span className="text-zinc-500 font-semibold tracking-wider uppercase text-[10px]">Audit Chain Proof:</span>
+                              {r.prev_hash && (
+                                <span className="rounded border border-zinc-800 bg-zinc-900/90 px-2 py-0.5 text-zinc-400">
+                                  <span className="text-zinc-500">Prev:</span> {r.prev_hash === "GENESIS" ? "GENESIS" : `${r.prev_hash.slice(0, 12)}…`}
+                                </span>
+                              )}
+                              {r.record_hash && (
+                                <span className="rounded border border-emerald-900/50 bg-emerald-950/30 px-2 py-0.5 text-emerald-300">
+                                  <span className="text-emerald-500/80">Hash:</span> {r.record_hash.slice(0, 16)}…
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 text-[11px] font-mono">
+                            <a
+                              href={`/api/audits/${r.audit_id}/certificate?format=pdf`}
+                              download={`veritas-certificate-${r.audit_id}.pdf`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded border border-emerald-700/60 bg-emerald-950/40 px-2.5 py-1 text-emerald-300 hover:bg-emerald-900/50 transition flex items-center gap-1 font-semibold"
+                            >
+                              <span>📄 Export PDF</span>
+                            </a>
+                            <a
+                              href={`/api/audits/${r.audit_id}/certificate?format=json`}
+                              download={`veritas-certificate-${r.audit_id}.json`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded border border-zinc-700 bg-zinc-900/80 px-2.5 py-1 text-zinc-300 hover:bg-zinc-800 transition flex items-center gap-1"
+                            >
+                              <span>🔒 JSON Seal</span>
+                            </a>
                           </div>
-                        )}
+                        </div>
                         <div className="space-y-1">
                           <p className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider">Full answer</p>
                           <p className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 text-sm text-zinc-100 whitespace-pre-wrap">

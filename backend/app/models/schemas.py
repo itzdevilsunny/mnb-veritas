@@ -247,6 +247,36 @@ class BatchVerifyResponse(BaseModel):
     results: list[BatchVerifyItemResult]
 
 
+# --- Compliance Certificate Schemas ---
+
+class VerifiedQuoteClaim(BaseModel):
+    claim_id: str
+    verbatim_quote: str | None = None
+    matched_doc_id: str | None = None
+    quote_verified: bool = False
+    numeric_mismatch: bool = False
+    fy_mismatch: bool = False
+    cross_lab_supported: bool = False
+
+
+class ComplianceCertificateResponse(BaseModel):
+    audit_id: str
+    issued_at_utc: str
+    verdict: str
+    policy_applied: str
+    safe_to_publish: bool
+    primary_model: str
+    auditor_model: str | None = None
+    prev_hash: str | None = None
+    record_hash: str | None = None
+    chain_verified: bool
+    latency_ms: int = 0
+    estimated_cost_usd: float | None = None
+    verified_quotes: list[VerifiedQuoteClaim] = Field(default_factory=list)
+    certificate_seal_sha256: str
+    issuer: str = "MNB Veritas Forensic Evidence Engine v1.4"
+
+
 # --- App Key Schemas ---
 
 class AppKeyCreateRequest(BaseModel):

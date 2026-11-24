@@ -101,6 +101,8 @@ def run_full_workflow():
     print("\n[PHASE 1] Checking Core Gateway & Provider Health...")
     s1, h1 = request("GET", "/health")
     assert s1 == 200, f"Health check failed: {h1}"
+    configured_labs = set(h1.get("configured_labs", []))
+    assert {"anthropic", "openai", "google", "xai", "ollama"}.issubset(configured_labs), f"Missing labs in {configured_labs}"
     print(f"  ✓ /health: OK ({h1.get('service')} v{h1.get('version')}, labs={h1.get('configured_labs')})")
     
     s2, h2 = request("GET", "/v1/health/providers")
@@ -108,7 +110,7 @@ def run_full_workflow():
     active_count = h2.get("active_count", len(h2.get("providers", {})))
     total_configured = h2.get("total_configured", len(h2.get("providers", {})))
     print(f"  ✓ /v1/health/providers: {active_count}/{total_configured} providers active (Redis: {h2.get('redis_connected')}).")
-    assert total_configured >= 4, f"Expected at least 4 configured providers, got {total_configured}"
+    assert total_configured >= 5, f"Expected 5 configured providers, got {total_configured}"
     results["phase1_health"] = f"{active_count}/{total_configured} ACTIVE"
 
     # 2. Source Corpus Lifecycle & PDF Ingestion

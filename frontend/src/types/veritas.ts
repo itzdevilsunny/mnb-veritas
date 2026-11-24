@@ -166,6 +166,34 @@ export interface BatchVerifyResponse {
   results: BatchVerifyItemResult[];
 }
 
+export interface VerifiedQuoteClaim {
+  claim_id: string;
+  verbatim_quote?: string | null;
+  matched_doc_id?: string | null;
+  quote_verified: boolean;
+  numeric_mismatch: boolean;
+  fy_mismatch: boolean;
+  cross_lab_supported: boolean;
+}
+
+export interface ComplianceCertificate {
+  audit_id: string;
+  issued_at_utc: string;
+  verdict: Verdict;
+  policy_applied: PolicyMode | string;
+  safe_to_publish: boolean;
+  primary_model: string;
+  auditor_model?: string | null;
+  prev_hash?: string | null;
+  record_hash?: string | null;
+  chain_verified: boolean;
+  latency_ms: number;
+  estimated_cost_usd?: number | null;
+  verified_quotes: VerifiedQuoteClaim[];
+  certificate_seal_sha256: string;
+  issuer: string;
+}
+
 export interface PdfUploadResult {
   base_doc_id: string;
   title?: string;

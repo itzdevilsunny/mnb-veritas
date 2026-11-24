@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, select, update
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.benchmark import BenchmarkRunRequest, BenchmarkSuiteReport, execute_forensic_benchmark
 from app.services.alerting import dispatch_compliance_alert, send_test_webhook
 from app.services.audit_chain import prepare_audit_log_entry, verify_audit_chain_integrity
+from app.services.certificate import build_certificate_data, render_certificate_pdf
 from app.core.auth_rate_limit import (
     AuthenticatedClient,
     generate_app_key,
@@ -41,6 +42,7 @@ from app.models.schemas import (
     BatchVerifyRequest,
     BatchVerifyResponse,
     BatchVerifySummary,
+    ComplianceCertificateResponse,
     GatewayTelemetry,
     HumanReviewRequest,
     HumanReviewResponse,
@@ -1010,6 +1012,43 @@ async def verify_audit_chain_endpoint(
     """Walks the stored audit logs sequentially, re-verifying SHA-256 chain linkage."""
     result = await verify_audit_chain_integrity(db)
     return AuditChainVerificationResponse(**result)
+
+
+@router.get("/audits/{audit_id}/certificate")
+async def get_audit_certificate(
+    audit_id: str,
+    format: str = Query("json", pattern="^(json|pdf)$"),
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+):
+    """
+    Exports a signed compliance certificate for a specific audit record.
+    Supports ?format=json (canonical JSON seal) or ?format=pdf (printable PyMuPDF certificate).
+    """
+    stmt = select(VeritasAuditLog).where(VeritasAuditLog.audit_id == audit_id)
+    audit = (await db.execute(stmt)).scalar_one_or_none()
+    if not audit:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Audit log '{audit_id}' not found",
+        )
+
+    chain_res = await verify_audit_chain_integrity(db)
+    chain_verified = bool(chain_res.get("valid", False))
+
+    cert_data = build_certificate_data(audit, chain_verified=chain_verified)
+
+    if format.lower() == "pdf":
+        pdf_bytes = render_certificate_pdf(cert_data)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="veritas-certificate-{audit_id}.pdf"'
+            },
+        )
+
+    return cert_data
 
 
 @router.post("/audits/{audit_id}/review", response_model=HumanReviewResponse)

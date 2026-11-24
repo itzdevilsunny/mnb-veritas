@@ -54,6 +54,9 @@ def main() -> int:
     print(f"[1/5] Checking GET /health at {BASE_URL}...")
     _, health = _request("GET", "/health", expect_status=(200,))
     print("  -> Health OK:", health)
+    configured_labs = set(health.get("configured_labs", []))
+    expected_labs = {"anthropic", "openai", "google", "xai", "ollama"}
+    assert expected_labs.issubset(configured_labs), f"Expected 5 configured labs, got {configured_labs}"
 
     print(f"[2/5] Upserting approved source {TEST_DOC_ID}...")
     source_payload = {

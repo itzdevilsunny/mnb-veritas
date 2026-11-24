@@ -2,10 +2,12 @@
 
 import React, { useEffect, useState } from "react";
 import type {
+  BatchVerifyItemResult,
   LabProvider,
   PolicyMode,
   VerifyResponse,
 } from "@/types/veritas";
+import { ClaimProvenanceDAG } from "./ClaimProvenanceDAG";
 
 interface AuditWorkbenchProps {
   onVerified?: (res: VerifyResponse) => void;
@@ -33,10 +35,55 @@ export default function AuditWorkbench({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VerifyResponse | null>(null);
   const [inspectedClaim, setInspectedClaim] = useState<string | null>(null);
+  const [openDagId, setOpenDagId] = useState<string | null>(null);
   const [sourcesMap, setSourcesMap] = useState<Record<string, { doc_id: string; title: string; text: string; valid_from: string; valid_until: string | null }>>({});
   const [reviewerName, setReviewerName] = useState("Compliance Officer - Lead Regulatory");
   const [reviewNotes, setReviewNotes] = useState("Verified against statutory regulatory circular.");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [whatIfLoading, setWhatIfLoading] = useState(false);
+  const [whatIfResults, setWhatIfResults] = useState<BatchVerifyItemResult[] | null>(null);
+
+  const executeWhatIfMatrix = async () => {
+    setWhatIfLoading(true);
+    setError(null);
+    const q = query.trim();
+    if (!q) {
+      setError("Query text is required for What-If evaluation");
+      setWhatIfLoading(false);
+      return;
+    }
+
+    let preferredLabs: LabProvider[] = ["anthropic", "openai", "google", "xai"];
+    if (generator === "anthropic") preferredLabs = ["anthropic", "openai"];
+    if (generator === "openai") preferredLabs = ["openai", "anthropic"];
+    if (generator === "google") preferredLabs = ["google", "anthropic"];
+    if (generator === "xai") preferredLabs = ["xai", "anthropic"];
+
+    try {
+      const res = await fetch("/api/verify/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [
+            { item_id: "strict", query: q, policy: "strict", reference_date: refDate, preferred_labs: preferredLabs },
+            { item_id: "balanced", query: q, policy: "balanced", reference_date: refDate, preferred_labs: preferredLabs },
+            { item_id: "standard", query: q, policy: "standard", reference_date: refDate, preferred_labs: preferredLabs },
+          ],
+          concurrency_limit: 3,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail ?? "Failed to execute What-If matrix");
+      } else {
+        setWhatIfResults(data.results ?? []);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "What-If matrix execution failed");
+    } finally {
+      setWhatIfLoading(false);
+    }
+  };
 
   const handleHumanReview = async (decision: "APPROVE" | "REJECT") => {
     if (!result?.audit_id) return;
@@ -458,15 +505,109 @@ export default function AuditWorkbench({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void executeVerify()}
-          disabled={loading}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-50"
-        >
-          <span>⚡</span>
-          <span>{loading ? "EXECUTING MULTI-LAB VERIFICATION..." : "EXECUTE MULTI-LAB VERIFICATION"}</span>
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            onClick={() => void executeVerify()}
+            disabled={loading || whatIfLoading}
+            className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-50"
+          >
+            <span>⚡</span>
+            <span>{loading ? "EXECUTING MULTI-LAB VERIFICATION..." : "EXECUTE MULTI-LAB VERIFICATION"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void executeWhatIfMatrix()}
+            disabled={loading || whatIfLoading}
+            className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/60 bg-cyan-950/40 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-cyan-300 transition hover:bg-cyan-900/50 hover:border-cyan-400 disabled:opacity-50"
+          >
+            <span>📊</span>
+            <span>{whatIfLoading ? "EVALUATING 3 POLICIES..." : "RUN WHAT-IF POLICY MATRIX"}</span>
+          </button>
+        </div>
+
+        {/* What-If Policy Comparative Matrix */}
+        {whatIfResults && whatIfResults.length > 0 && (
+          <div className="rounded-xl border border-cyan-800/60 bg-[#0A121A] p-4 space-y-3 font-mono">
+            <div className="flex items-center justify-between border-b border-cyan-900/40 pb-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider">
+                  WHAT-IF POLICY MATRIX · COMPARATIVE ANALYSIS
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWhatIfResults(null)}
+                className="text-[10px] text-zinc-400 hover:text-zinc-200"
+              >
+                Dismiss ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {whatIfResults.map((item) => {
+                const pol = item.item_id?.toUpperCase() || "POLICY";
+                const res = item.result;
+                const isApproved = res?.verdict === "APPROVE";
+                const isQualify = res?.verdict === "QUALIFY";
+                return (
+                  <div
+                    key={item.item_id}
+                    className={`rounded-lg border p-3 flex flex-col justify-between space-y-2.5 ${
+                      isApproved
+                        ? "border-emerald-700/60 bg-emerald-950/20"
+                        : isQualify
+                        ? "border-amber-700/60 bg-amber-950/20"
+                        : "border-rose-700/60 bg-rose-950/20"
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-zinc-200">{pol}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] ${
+                            isApproved
+                              ? "bg-emerald-900/60 text-emerald-300 border border-emerald-700/60"
+                              : isQualify
+                              ? "bg-amber-900/60 text-amber-300 border border-amber-700/60"
+                              : "bg-rose-900/60 text-rose-300 border border-rose-700/60"
+                          }`}
+                        >
+                          {res?.verdict || "ERROR"}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-zinc-400 flex items-center justify-between">
+                        <span>Safe to Publish:</span>
+                        <span className={isApproved ? "text-emerald-300 font-bold" : "text-rose-400 font-bold"}>
+                          {isApproved ? "YES" : "NO"}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-zinc-400 flex items-center justify-between">
+                        <span>Latency / Route:</span>
+                        <span className="text-zinc-300">
+                          {res?.telemetry.latency_ms || 0}ms · {res?.telemetry.moe_route || "fast"}
+                        </span>
+                      </div>
+                      <div className="text-[11px] font-sans text-zinc-200 leading-relaxed rounded bg-zinc-950/60 p-2 border border-zinc-800/60 max-h-36 overflow-y-auto">
+                        {res?.answer || item.error || "No response generated."}
+                      </div>
+                    </div>
+
+                    {res?.warnings && res.warnings.length > 0 && (
+                      <div className="text-[10px] text-rose-300/90 space-y-0.5 pt-1.5 border-t border-zinc-800/60">
+                        <span className="text-zinc-500 uppercase text-[9px] font-bold">Caveats / Veto:</span>
+                        {res.warnings.map((w, wi) => (
+                          <p key={wi} className="line-clamp-2">· {w}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Real-time Streaming Pipeline Stepper */}
         {loading && streamStage && (
@@ -574,9 +715,29 @@ export default function AuditWorkbench({
                     : 'Strict abstention triggered: Claim is ungrounded or contradictory. Answer reverted to "No answer possible".'}
                 </span>
               </div>
-              <span className="font-mono text-[11px] text-zinc-500">
-                AUDIT_ID: {result.audit_id}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[11px] text-zinc-500">
+                  AUDIT_ID: {result.audit_id}
+                </span>
+                <a
+                  href={`/api/audits/${result.audit_id}/certificate?format=pdf`}
+                  download={`veritas-certificate-${result.audit_id}.pdf`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-emerald-700/60 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/60 font-mono text-[11px] transition-colors"
+                  title="Download Signed PDF Compliance Certificate"
+                >
+                  <span>📜</span>
+                  <span>Export Certificate (PDF)</span>
+                </a>
+                <a
+                  href={`/api/audits/${result.audit_id}/certificate?format=json`}
+                  download={`veritas-seal-${result.audit_id}.json`}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:bg-zinc-800 font-mono text-[11px] transition-colors"
+                  title="Export Cryptographic JSON Seal"
+                >
+                  <span>🛡️</span>
+                  <span>JSON Seal</span>
+                </a>
+              </div>
             </div>
 
             {/* Answer Display */}
@@ -758,6 +919,17 @@ export default function AuditWorkbench({
                     <button
                       type="button"
                       onClick={() =>
+                        setOpenDagId(
+                          openDagId === claim.claim_id ? null : claim.claim_id
+                        )
+                      }
+                      className="rounded border border-zinc-700 bg-zinc-800/80 px-2 py-0.5 text-[10px] font-mono text-zinc-300 hover:bg-zinc-700 transition"
+                    >
+                      {openDagId === claim.claim_id ? "DAG ▲" : "DAG ▼"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
                         setInspectedClaim(
                           inspectedClaim === claim.claim_id ? null : claim.claim_id
                         )
@@ -772,6 +944,16 @@ export default function AuditWorkbench({
                 <p className="text-xs leading-relaxed text-zinc-100 font-sans">
                   {claim.claim_text}
                 </p>
+
+                {openDagId === claim.claim_id && (
+                  <div className="pt-1">
+                    <ClaimProvenanceDAG
+                      claim={claim}
+                      overallVerdict={result.verdict}
+                      auditorModel={result.telemetry?.auditor_model ?? null}
+                    />
+                  </div>
+                )}
 
                 {claim.verbatim_quote && (
                   <div className="space-y-1">
