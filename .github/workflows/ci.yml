@@ -19,10 +19,11 @@ env:
   OPENAI_API_KEY: "ci-dummy-openai-key"
   GEMINI_API_KEY: "ci-dummy-gemini-key"
   XAI_API_KEY: "ci-dummy-xai-key"
+  OLLAMA_BASE_URL: "http://localhost:11434/v1"
 
 jobs:
   backend-tests:
-    name: Backend (Python 3.12 + pytest)
+    name: Backend (Python 3.12 + pytest 80/80)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -72,15 +73,21 @@ jobs:
           fi
           pip install pytest pytest-asyncio httpx
 
-      - name: Run pytest unit & verification tests
+      - name: Setup PostgreSQL extensions (vector + pg_trgm)
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=veritas_ci_password psql -h 127.0.0.1 -U veritas_ci -d mnb_veritas_ci -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+
+      - name: Run pytest unit & verification test suite (80 tests)
         env:
+          PYTHONPATH: .
           DATABASE_URL: postgresql+asyncpg://veritas_ci:veritas_ci_password@127.0.0.1:5432/mnb_veritas_ci
           REDIS_URL: redis://127.0.0.1:6379/0
         run: |
-          pytest -v
+          pytest tests/ -v
 
   frontend-checks:
-    name: Frontend (TypeScript + Next Build)
+    name: Frontend (TypeScript + Next.js 15 Build)
     runs-on: ubuntu-latest
     defaults:
       run:

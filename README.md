@@ -7,7 +7,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-15.5+-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector%20%2B%20pg__trgm-336791?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
-[![Pytest](https://img.shields.io/badge/Pytest-80%2F80%20Passing-brightgreen?logo=pytest&logoColor=white)](backend/tests/)
+[![Pytest](https://img.shields.io/badge/Pytest-82%2F82%20Passing-brightgreen?logo=pytest&logoColor=white)](backend/tests/)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 **MNB Veritas** is an enterprise-grade, evidence-gated verification middleware and forensic compliance workbench. It enforces deterministic anti-hallucination guardrails across multi-lab Large Language Models (Anthropic Claude, OpenAI GPT, Google Gemini, xAI Grok, and local Ollama) by subjecting AI outputs to exact verbatim quote matching, pure Python numeric and temporal boundary reconciliation, cross-lab adversarial auditing, and tamper-evident SHA-256 audit chaining.
@@ -25,8 +25,9 @@
 6. [Forensic Workbench & UI Capabilities](#forensic-workbench--ui-capabilities)
 7. [Environment & Gateway Configuration](#environment--gateway-configuration)
 8. [Complete REST & Streaming API Reference](#complete-rest--streaming-api-reference)
-9. [Local Setup & Developer Quickstart](#local-setup--developer-quickstart)
-10. [Automated Verification & Test Matrix](#automated-verification--test-matrix)
+9. [Official Python Client SDK & CLI](#official-python-client-sdk--cli)
+10. [Local Setup & Developer Quickstart](#local-setup--developer-quickstart)
+11. [Automated Verification & Test Matrix](#automated-verification--test-matrix)
 
 ---
 
@@ -478,6 +479,69 @@ data: {"stage": 5, "name": "COMPLETE", "message": "Verification report generated
 
 ---
 
+## Official Python Client SDK & CLI
+
+MNB Veritas provides an official Python SDK and CLI tool (`client/veritas/`) to embed evidence-gated verification directly into financial microservices, trading platforms, and automated compliance pipelines.
+
+### 1. Installation
+```bash
+pip install -e client/
+```
+
+### 2. Async Python SDK Usage
+```python
+import asyncio
+from veritas import VeritasClient
+
+async def main():
+    async with VeritasClient(api_url="http://127.0.0.1:8000", api_key="veritas-local-dev-key-2026") as client:
+        # 1. Execute verification with strict anti-hallucination guardrails
+        res = await client.verify(
+            query="What is the revised Standing Deposit Facility rate effective January 2025?",
+            policy="strict",
+        )
+
+        if res.is_approved:
+            print(f"Verified Answer: {res.answer}")
+            print(f"Primary Model  : {res.telemetry.primary_model}")
+            print(f"Verified Quotes: {res.verified_quotes_count}")
+
+            # 2. Export signed PDF compliance certificate
+            pdf_bytes = await client.download_certificate(res.audit_id, format="pdf")
+            with open(f"veritas-cert-{res.audit_id}.pdf", "wb") as f:
+                f.write(pdf_bytes)
+        else:
+            print(f"Strict Abstention Triggered: {res.verdict} ({res.answer})")
+
+asyncio.run(main())
+```
+
+### 3. Synchronous Blocking Usage
+```python
+from veritas import VeritasSyncClient
+
+with VeritasSyncClient(api_url="http://127.0.0.1:8000") as client:
+    res = client.verify("What is the green hydrogen pilot outlay?", policy="standard")
+    print(res.verdict, res.answer)
+```
+
+### 4. CLI Tool Usage
+```bash
+# Verify a query from terminal
+veritas verify "What is the capital expenditure outlay for FY 2025-26?" --policy strict --export-cert cert.pdf
+
+# Verify cryptographic SHA-256 audit blockchain integrity
+veritas chain
+
+# Check provider circuit states and active models
+veritas health
+
+# Download signed compliance certificate by audit ID
+veritas cert aud_b43fd87d --format pdf --out cert_b43fd87d.pdf
+```
+
+---
+
 ## Local Setup & Developer Quickstart
 
 ### Prerequisites
@@ -571,9 +635,10 @@ cd frontend && npx tsc --noEmit
 | **Option B Enhancements** | [`test_option_b_enhancements.py`](file:///c:/Users/Pinky/Desktop/mnb%20research/mnb%20veritas/backend/tests/test_option_b_enhancements.py) | 6 | Tabular PDF extraction to Markdown, split table headers, authority multipliers, local embeddings | **PASSED** |
 | **Option C Batch & Chain** | [`test_option_c_batch_and_chain.py`](file:///c:/Users/Pinky/Desktop/mnb%20research/mnb%20veritas/backend/tests/test_option_c_batch_and_chain.py) | 4 | Batch verification limits, scoped policy checks, sequential SHA-256 audit chaining, tamper detection | **PASSED** |
 | **Option D Certificates** | [`test_option_d_certificates.py`](file:///c:/Users/Pinky/Desktop/mnb%20research/mnb%20veritas/backend/tests/test_option_d_certificates.py) | 5 | JSON compliance certificate schema, PyMuPDF printable PDF rendering, 404/401 handlers | **PASSED** |
+| **Client SDK & CLI** | [`test_client_sdk.py`](file:///c:/Users/Pinky/Desktop/mnb%20research/mnb%20veritas/backend/tests/test_client_sdk.py) | 2 | Async/sync Python client verification, batching, certificate downloads, CLI parser | **PASSED** |
 | **Policy Gate Invariants** | [`test_policy_gate.py`](file:///c:/Users/Pinky/Desktop/mnb%20research/mnb%20veritas/backend/tests/test_policy_gate.py) | 4 | STRICT abstention on missing citation, numeric/FY mismatch, empty corpus | **PASSED** |
 | **Security & Supabase** | [`test_security_parser.py`](file:///c:/Users/Pinky/Desktop/mnb%20research/mnb%20veritas/backend/tests/test_security_parser.py) + [`test_supabase_integration.py`](file:///c:/Users/Pinky/Desktop/mnb%20research/mnb%20veritas/backend/tests/test_supabase_integration.py) | 8 | Hyphenation joining, token boundaries, Supabase health checks, unconfigured fallbacks | **PASSED** |
-| **TOTAL** | | **80** | **100% Passing (0 failures, 0 errors)** | **GREEN** |
+| **TOTAL** | | **82** | **100% Passing (0 failures, 0 errors)** | **GREEN** |
 
 ---
 
