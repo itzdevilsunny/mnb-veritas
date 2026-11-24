@@ -571,10 +571,10 @@ export default function AuditWorkbench({
                 ))}
               </div>
             ) : (
-              <div className="rounded border border-[#27272A] bg-[#141416] p-4 text-center font-mono text-xs text-zinc-500 space-y-1">
-                <p>No active truth sources loaded in database.</p>
-                <p className="text-[11px] text-zinc-600 font-sans">
-                  Navigate to Sources tab to upload or ingest regulatory circulars.
+              <div className="rounded border border-[#27272A] bg-[#141416] p-4 text-center font-mono text-xs text-zinc-400 space-y-1">
+                <p className="text-zinc-300 font-medium">No active truth sources loaded — add a document in Sources to enable grounded prompts.</p>
+                <p className="text-[11px] text-zinc-500 font-sans">
+                  Navigate to Sources tab to upload official gazette PDFs or direct statutory snippets.
                 </p>
               </div>
             )}

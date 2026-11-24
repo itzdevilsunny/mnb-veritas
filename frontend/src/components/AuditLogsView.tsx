@@ -186,7 +186,9 @@ export default function AuditLogsView({ refreshKey = 0 }: AuditLogsViewProps) {
       {chainStatus && (
         <div
           className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3.5 py-2.5 font-mono text-xs shadow-sm ${
-            chainStatus.valid
+            chainStatus.checked_count === 0
+              ? "border-[#27272A] bg-[#111114] text-zinc-400"
+              : chainStatus.valid
               ? "border-emerald-900/60 bg-emerald-950/30 text-emerald-300"
               : "border-rose-900/60 bg-rose-950/30 text-rose-300"
           }`}
@@ -194,11 +196,20 @@ export default function AuditLogsView({ refreshKey = 0 }: AuditLogsViewProps) {
           <div className="flex flex-wrap items-center gap-2.5">
             <span
               className={`h-2 w-2 rounded-full shrink-0 ${
-                chainStatus.valid ? "bg-emerald-400 animate-pulse" : "bg-rose-500"
+                chainStatus.checked_count === 0
+                  ? "bg-zinc-500"
+                  : chainStatus.valid
+                  ? "bg-emerald-400 animate-pulse"
+                  : "bg-rose-500"
               }`}
             />
             <span className="font-semibold tracking-wider uppercase text-[11px] flex items-center gap-1.5">
-              {chainStatus.valid ? (
+              {chainStatus.checked_count === 0 ? (
+                <>
+                  <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" />
+                  SHA-256 AUDIT CHAIN · GENESIS EMPTY (0 sealed logs)
+                </>
+              ) : chainStatus.valid ? (
                 <>
                   <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
                   SHA-256 AUDIT CHAIN VERIFIED
@@ -210,13 +221,15 @@ export default function AuditLogsView({ refreshKey = 0 }: AuditLogsViewProps) {
                 </>
               )}
             </span>
-            <span className="text-zinc-400 text-[11px] tabular-nums">
-              ({chainStatus.checked_count} logs cryptographically sealed
-              {chainStatus.latest_record_hash
-                ? ` · Head: ${chainStatus.latest_record_hash.slice(0, 10)}…`
-                : ""}
-              )
-            </span>
+            {chainStatus.checked_count > 0 && (
+              <span className="text-zinc-400 text-[11px] tabular-nums">
+                ({chainStatus.checked_count} logs cryptographically sealed
+                {chainStatus.latest_record_hash
+                  ? ` · Head: ${chainStatus.latest_record_hash.slice(0, 10)}…`
+                  : ""}
+                )
+              </span>
+            )}
             {!chainStatus.valid && chainStatus.first_broken_audit_id && (
               <span className="rounded bg-rose-900/60 px-1.5 py-0.5 text-[10px] text-rose-200 border border-rose-700/60 font-semibold">
                 Broken at: {chainStatus.first_broken_audit_id}

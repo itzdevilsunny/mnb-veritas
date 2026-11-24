@@ -234,3 +234,36 @@ async def test_forensic_benchmark_suite_endpoint(client: httpx.AsyncClient) -> N
     assert report["total_cases"] == 5
     assert report["hallucination_catch_rate_pct"] == 100.0
     assert len(report["cases"]) == 5
+
+
+@pytest.mark.integration
+async def test_verify_with_policy_mode_alias_enforces_scoped_restrictions(
+    client: httpx.AsyncClient,
+) -> None:
+    # 1. Create a scoped app key restricted to ["strict"] only
+    admin_headers = {"X-Veritas-Key": get_settings().VERITAS_API_KEY}
+    key_res = await client.post(
+        "/v1/app-keys",
+        headers=admin_headers,
+        json={
+            "app_name": "Strict-Only Microservice",
+            "allowed_policies": ["strict"],
+            "rate_limit_per_minute": 60,
+        },
+    )
+    assert key_res.status_code == 201
+    scoped_raw_key = key_res.json()["raw_key"]
+
+    # 2. Call /v1/verify with policy_mode="balanced" (using the alias instead of policy)
+    verify_res = await client.post(
+        "/v1/verify",
+        headers={"X-Veritas-Key": scoped_raw_key},
+        json={
+            "query": "Test query for policy enforcement",
+            "policy_mode": "balanced",
+        },
+    )
+    # Must fail with 403 Forbidden because scoped key only allows "strict"
+    assert verify_res.status_code == 403
+    assert "Policy 'balanced' is not permitted" in verify_res.json()["detail"]
+

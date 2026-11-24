@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.db import VeritasAuditLog, utcnow
 
 logger = logging.getLogger("veritas.audit_chain")
+
+# In-process locks keyed by event loop to prevent concurrent hash chain forking
+_audit_chain_locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+
+def get_audit_chain_lock() -> asyncio.Lock:
+    """Returns an asyncio.Lock bound to the current running event loop."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is None:
+        return asyncio.Lock()
+
+    if loop not in _audit_chain_locks:
+        _audit_chain_locks[loop] = asyncio.Lock()
+    return _audit_chain_locks[loop]
 
 
 def compute_claim_audits_digest(claim_audits: list[dict[str, Any]] | None) -> str:
@@ -89,6 +108,92 @@ async def get_latest_audit_record_hash(db: AsyncSession) -> str:
     return res or "GENESIS"
 
 
+async def write_audit_log(
+    db: AsyncSession,
+    audit_id: str,
+    query_text: str,
+    verdict: str,
+    answer: str,
+    policy_applied: str,
+    primary_model: str,
+    auditor_model: str | None,
+    failover_triggered: bool,
+    latency_ms: int,
+    estimated_cost_usd: float | None,
+    claim_audits: list[dict[str, Any]],
+    warnings: list[str],
+    created_at: datetime | None = None,
+) -> VeritasAuditLog:
+    """
+    Persists an audit log entry with strict concurrency serialization.
+    Uses asyncio.Lock to prevent concurrent in-process race conditions,
+    fetches the exact tail record_hash, computes the cryptographic link,
+    and commits atomically to prevent chain forks.
+    """
+    async with get_audit_chain_lock():
+        bind = db.bind
+        dialect_name = bind.dialect.name if bind else ""
+        if dialect_name == "postgresql":
+            stmt = (
+                select(VeritasAuditLog)
+                .order_by(desc(VeritasAuditLog.created_at), desc(VeritasAuditLog.audit_id))
+                .limit(1)
+                .with_for_update()
+            )
+            latest = (await db.execute(stmt)).scalar_one_or_none()
+        else:
+            stmt = (
+                select(VeritasAuditLog)
+                .where(VeritasAuditLog.record_hash.isnot(None))
+                .order_by(desc(VeritasAuditLog.created_at), desc(VeritasAuditLog.audit_id))
+                .limit(1)
+            )
+            latest = (await db.execute(stmt)).scalar_one_or_none()
+
+        prev_hash = latest.record_hash if latest and latest.record_hash else "GENESIS"
+
+        now = created_at or utcnow()
+        if latest and latest.created_at:
+            latest_dt = latest.created_at
+            if latest_dt.tzinfo is None:
+                latest_dt = latest_dt.replace(tzinfo=timezone.utc)
+            now_aware = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+            if now_aware <= latest_dt:
+                now = latest_dt + timedelta(microseconds=10)
+        record_hash = compute_audit_record_hash(
+            prev_hash=prev_hash,
+            audit_id=audit_id,
+            created_at=now,
+            verdict=verdict,
+            policy_applied=policy_applied,
+            primary_model=primary_model,
+            auditor_model=auditor_model,
+            claim_audits=claim_audits,
+        )
+
+        entry = VeritasAuditLog(
+            audit_id=audit_id,
+            query_text=query_text,
+            verdict=verdict,
+            answer=answer,
+            policy_applied=policy_applied,
+            primary_model=primary_model,
+            auditor_model=auditor_model,
+            failover_triggered=failover_triggered,
+            latency_ms=latency_ms,
+            estimated_cost_usd=estimated_cost_usd,
+            claim_audits=claim_audits,
+            warnings=warnings,
+            created_at=now,
+            prev_hash=prev_hash,
+            record_hash=record_hash,
+        )
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+        return entry
+
+
 async def prepare_audit_log_entry(
     db: AsyncSession,
     audit_id: str,
@@ -108,20 +213,8 @@ async def prepare_audit_log_entry(
     """
     Constructs a VeritasAuditLog instance with cryptographically chained prev_hash and record_hash.
     """
-    prev_hash = await get_latest_audit_record_hash(db)
-    now = created_at or utcnow()
-    record_hash = compute_audit_record_hash(
-        prev_hash=prev_hash,
-        audit_id=audit_id,
-        created_at=now,
-        verdict=verdict,
-        policy_applied=policy_applied,
-        primary_model=primary_model,
-        auditor_model=auditor_model,
-        claim_audits=claim_audits,
-    )
-
-    return VeritasAuditLog(
+    return await write_audit_log(
+        db=db,
         audit_id=audit_id,
         query_text=query_text,
         verdict=verdict,
@@ -134,10 +227,52 @@ async def prepare_audit_log_entry(
         estimated_cost_usd=estimated_cost_usd,
         claim_audits=claim_audits,
         warnings=warnings,
-        created_at=now,
-        prev_hash=prev_hash,
-        record_hash=record_hash,
+        created_at=created_at,
     )
+
+
+async def relink_audit_chain(db: AsyncSession) -> dict[str, Any]:
+    """
+    Idempotent repair helper: canonically orders all VeritasAuditLog records
+    by (created_at.asc(), audit_id.asc()), sequentially recomputes prev_hash and record_hash
+    starting from 'GENESIS', and commits to heal any historical concurrency forks.
+    """
+    async with get_audit_chain_lock():
+        stmt = select(VeritasAuditLog).order_by(
+            VeritasAuditLog.created_at.asc(), VeritasAuditLog.audit_id.asc()
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        if not rows:
+            return {"relinked_count": 0, "total_records": 0, "valid": True, "details": "Audit chain is empty."}
+
+        expected_prev = "GENESIS"
+        relinked_count = 0
+        for idx, row in enumerate(rows):
+            new_prev = "GENESIS" if idx == 0 else expected_prev
+            new_hash = compute_audit_record_hash(
+                prev_hash=new_prev,
+                audit_id=row.audit_id,
+                created_at=row.created_at,
+                verdict=row.verdict,
+                policy_applied=row.policy_applied,
+                primary_model=row.primary_model,
+                auditor_model=row.auditor_model,
+                claim_audits=row.claim_audits,
+            )
+            if row.prev_hash != new_prev or row.record_hash != new_hash:
+                row.prev_hash = new_prev
+                row.record_hash = new_hash
+                relinked_count += 1
+            expected_prev = new_hash
+
+        await db.commit()
+        logger.info("Relinked %d of %d audit records cleanly.", relinked_count, len(rows))
+        return {
+            "relinked_count": relinked_count,
+            "total_records": len(rows),
+            "valid": True,
+            "details": f"Relinked {relinked_count} of {len(rows)} records. Chain sealed canonically from GENESIS.",
+        }
 
 
 async def verify_audit_chain_integrity(db: AsyncSession) -> dict[str, Any]:

@@ -179,6 +179,30 @@ export default function BenchmarkRunner() {
   const [expectedVerdict, setExpectedVerdict] = useState<"APPROVE" | "ABSTAIN" | "QUALIFY" | "ESCALATE">("APPROVE");
   const [category, setCategory] = useState("STATUTORY_MANDATE");
   const [refDate, setRefDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [isSeedingCorpus, setIsSeedingCorpus] = useState(false);
+
+  // Missing required corpuses for the 5-point benchmark battery
+  const missingRequiredCorpuses = useMemo(() => {
+    const REQUIRED = ["doc_green_hydrogen_2024", "doc_budget_2025"];
+    return REQUIRED.filter(
+      (id) => !sources.some((s) => s.doc_id === id && s.is_active !== false)
+    );
+  }, [sources]);
+
+  // Handle seeding benchmark truth corpuses
+  const handleSeedCorpus = async () => {
+    setIsSeedingCorpus(true);
+    try {
+      const res = await fetch("/api/benchmark/seed-corpus", { method: "POST" });
+      if (res.ok) {
+        await fetchSources();
+      }
+    } catch (err) {
+      console.error("Failed to seed benchmark corpus:", err);
+    } finally {
+      setIsSeedingCorpus(false);
+    }
+  };
 
   // Load sources from live backend
   const fetchSources = async () => {
@@ -578,6 +602,26 @@ export default function BenchmarkRunner() {
               </button>
             </div>
           </form>
+        )}
+
+        {missingRequiredCorpuses.length > 0 && (
+          <div className="rounded-lg border border-amber-900/60 bg-amber-950/30 p-3 font-mono text-xs text-amber-300 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+              <span>
+                Benchmark Ground Truth Corpuses missing ({missingRequiredCorpuses.join(", ")}). Grounded cases will abstain until indexed.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleSeedCorpus}
+              disabled={isSeedingCorpus}
+              className="inline-flex items-center gap-1.5 rounded border border-amber-700/60 bg-amber-900/40 px-3 py-1 font-semibold text-amber-200 hover:bg-amber-800/50 transition disabled:opacity-50"
+            >
+              <Database className="h-3.5 w-3.5" />
+              <span>{isSeedingCorpus ? "Indexing Truth Documents..." : "Seed Benchmark Ground Truth"}</span>
+            </button>
+          </div>
         )}
 
         {error && (

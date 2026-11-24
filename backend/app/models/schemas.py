@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Lab(str, Enum):
@@ -165,6 +165,14 @@ class VerifyApiRequest(BaseModel):
     reference_date: date | None = None
     inline_sources: list[SourceCreateRequest] | None = None
     source_ids: list[str] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_policy_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "policy_mode" in data and "policy" not in data:
+                data["policy"] = data["policy_mode"]
+        return data
 
 
 class VerifyApiResponse(BaseModel):

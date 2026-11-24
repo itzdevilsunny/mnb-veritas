@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import time
+import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
@@ -15,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.benchmark import BenchmarkRunRequest, BenchmarkSuiteReport, execute_forensic_benchmark
 from app.services.alerting import dispatch_compliance_alert, send_test_webhook
-from app.services.audit_chain import prepare_audit_log_entry, verify_audit_chain_integrity
+from app.services.audit_chain import (
+    prepare_audit_log_entry,
+    relink_audit_chain,
+    verify_audit_chain_integrity,
+    write_audit_log,
+)
 from app.services.certificate import build_certificate_data, render_certificate_pdf
 from app.core.auth_rate_limit import (
     AuthenticatedClient,
@@ -71,6 +77,20 @@ def get_veritas_router() -> VeritasRouter:
 # PROVIDER HEALTH & CIRCUIT BREAKER ENDPOINTS
 # =====================================================================
 
+async def check_ollama_reachable(base_url: str, timeout: float = 0.4) -> bool:
+    """Fast non-blocking socket reachability probe for local Ollama daemon."""
+    try:
+        parsed = urllib.parse.urlparse(base_url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or (443 if parsed.scheme == "https" else 11434)
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
 @router.get("/health/providers")
 async def get_providers_health(
     router_inst: VeritasRouter = Depends(get_veritas_router),
@@ -80,7 +100,7 @@ async def get_providers_health(
     status_data = await router_inst.circuit_breaker.get_all_status()
     providers_dict = status_data.get("providers", {})
 
-    # Enrich provider metadata with configured model and engine backend
+    # Enrich provider metadata with configured model, engine backend, and reachability
     for lab_key, p_info in providers_dict.items():
         try:
             lab_enum = Lab(lab_key)
@@ -89,21 +109,29 @@ async def get_providers_health(
                 p_info["model"] = provider.model
                 p_info["configured"] = True
                 p_info["backend"] = "live_api"
+                p_info["reachable"] = True
+                if lab_key == "ollama":
+                    base_url = getattr(provider, "base_url", None) or get_settings().OLLAMA_BASE_URL or "http://localhost:11434"
+                    is_reachable = await check_ollama_reachable(base_url, timeout=0.4)
+                    p_info["reachable"] = is_reachable
+                    if not is_reachable:
+                        p_info["state"] = "UNREACHABLE"
             else:
                 p_info["model"] = ""
                 p_info["configured"] = False
                 p_info["backend"] = "unconfigured"
+                p_info["reachable"] = False
         except Exception:
             pass
 
     status_data["total_configured"] = sum(1 for p in providers_dict.values() if p.get("configured", False))
     status_data["active_count"] = sum(
         1 for p in providers_dict.values()
-        if p.get("configured", False) and p.get("state") == "CLOSED"
+        if p.get("configured", False) and p.get("state") == "CLOSED" and p.get("reachable", True) is not False
     )
     status_data["open_count"] = sum(
         1 for p in providers_dict.values()
-        if p.get("state") == "OPEN"
+        if p.get("state") in ("OPEN", "UNREACHABLE")
     )
     status_data["half_open_count"] = sum(
         1 for p in providers_dict.values()
@@ -1063,6 +1091,15 @@ async def verify_audit_chain_endpoint(
     return AuditChainVerificationResponse(**result)
 
 
+@router.post("/audits/relink-chain")
+async def relink_audit_chain_endpoint(
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> dict[str, Any]:
+    """Admin utility: canonically re-orders and cryptographically re-links all audit records."""
+    return await relink_audit_chain(db)
+
+
 @router.get("/audits/{audit_id}/certificate")
 async def get_audit_certificate(
     audit_id: str,
@@ -1240,6 +1277,87 @@ async def run_benchmark_battery(
     """Executes the standardized 5-point forensic verification benchmark battery plus any custom cases."""
     custom = payload.custom_cases if payload else None
     return await execute_forensic_benchmark(db=db, llm_router=llm_router, custom_cases=custom)
+
+
+@router.post("/benchmark/seed-corpus", response_model=list[SourceOut])
+async def seed_benchmark_corpus_endpoint(
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> list[SourceOut]:
+    """Explicitly seeds the exact ground-truth sources required by the standard benchmark battery."""
+    benchmark_sources = [
+        {
+            "doc_id": "doc_green_hydrogen_2024",
+            "title": "National Green Hydrogen Mission Cabinet Note Ref #GHM-4850",
+            "text": (
+                "Cabinet approves continuation of National Green Hydrogen Mission with financial outlay of ₹4,850 crore "
+                "specifically ear-marked for FY 2025-26 pilot electrolysers. Under component II (SIGHT), 68% of aggregate outlay "
+                "shall be deployed across domestic electrolyser manufacturing incentives and green ammonia pilots."
+            ),
+            "valid_from": date(2024, 1, 15),
+            "valid_until": date(2027, 3, 31),
+            "is_primary": True,
+            "authority_tier": "statutory",
+        },
+        {
+            "doc_id": "doc_budget_2025",
+            "title": "Union Budget 2025-26 - Ministry of Finance Outlay Schedule & Liquidity Guardrails",
+            "text": (
+                "Total capital expenditure outlay stands at ₹11,11,111 crore for FY 2025-26. Under emergency drawdown and risk "
+                "mitigation rules, Alternative Investment Funds (AIFs) under Category I and II are mandated to maintain a minimum "
+                "percentage of 10% unencumbered liquid assets in liquid government securities or overnight treasury repos."
+            ),
+            "valid_from": date(2025, 1, 15),
+            "valid_until": date(2026, 3, 31),
+            "is_primary": True,
+            "authority_tier": "statutory",
+        },
+        {
+            "doc_id": "doc_sebi_aifi_q3",
+            "title": "SEBI Circular on Alternate Investment Fund Liquidity Guardrails",
+            "text": (
+                "SEBI Circular Ref CIR/IMD/DF/2024. All Category I and II Alternative Investment Funds (AIFs) "
+                "must maintain minimum 10 percent unencumbered liquid cushion for investor drawdown resilience."
+            ),
+            "valid_from": date(2024, 10, 1),
+            "valid_until": date(2026, 9, 30),
+            "is_primary": False,
+            "authority_tier": "regulatory",
+        },
+        {
+            "doc_id": "doc_sebi_esg_brsr_2026",
+            "title": "SEBI Circular on Business Responsibility and Sustainability Reporting (BRSR Core)",
+            "text": (
+                "Top 1000 listed entities by market capitalization must obtain reasonable assurance on BRSR Core indicators "
+                "covering minimum 75 percent value chain footprints by end of FY 2026-27."
+            ),
+            "valid_from": date(2025, 2, 1),
+            "valid_until": date(2028, 3, 31),
+            "is_primary": True,
+            "authority_tier": "regulatory",
+        },
+    ]
+
+    out: list[SourceOut] = []
+    for s in benchmark_sources:
+        existing = (await db.execute(select(VeritasSource).where(VeritasSource.doc_id == s["doc_id"]))).scalar_one_or_none()
+        if existing:
+            existing.title = s["title"]
+            existing.text = s["text"]
+            existing.valid_from = s["valid_from"]
+            existing.valid_until = s["valid_until"]
+            existing.is_primary = s["is_primary"]
+            existing.is_active = True
+            existing.authority_tier = s["authority_tier"]
+            row = existing
+        else:
+            row = VeritasSource(**s)
+            db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        out.append(_serialize_source(row))
+
+    return out
 
 
 # =====================================================================

@@ -15,6 +15,21 @@ export default function SourceManager({
 }: SourceManagerProps) {
   const [sources, setSources] = useState<ManagedSource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [seedingBaseline, setSeedingBaseline] = useState(false);
+
+  const handleSeedBenchmarkBaseline = async () => {
+    try {
+      setSeedingBaseline(true);
+      const res = await fetch("/api/benchmark/seed-corpus", { method: "POST" });
+      if (res.ok) {
+        await fetchSources();
+      }
+    } catch {
+      // Non-fatal
+    } finally {
+      setSeedingBaseline(false);
+    }
+  };
 
   // Helper for today's date in YYYY-MM-DD
   const getTodayDate = () => new Date().toISOString().slice(0, 10);
@@ -576,8 +591,19 @@ export default function SourceManager({
               Loading truth corpuses from database...
             </div>
           ) : sources.length === 0 ? (
-            <div className="py-10 text-center font-mono text-xs text-zinc-500">
-              No active sources indexed yet — upload a PDF or upsert a verbatim snippet above
+            <div className="py-10 text-center font-mono text-xs text-zinc-500 space-y-3">
+              <p>No active sources indexed yet — upload a PDF or upsert a verbatim snippet above</p>
+              <div>
+                <button
+                  type="button"
+                  onClick={handleSeedBenchmarkBaseline}
+                  disabled={seedingBaseline}
+                  className="inline-flex items-center gap-1.5 rounded border border-[#27272A] bg-[#18181B] px-3 py-1.5 font-semibold text-zinc-300 hover:text-zinc-100 hover:border-zinc-600 transition disabled:opacity-50"
+                >
+                  <Database className={`h-3.5 w-3.5 text-emerald-400 ${seedingBaseline ? "animate-spin" : ""}`} />
+                  <span>{seedingBaseline ? "Seeding..." : "Seed Benchmark Baseline"}</span>
+                </button>
+              </div>
             </div>
           ) : (
             sources.map((src) => {

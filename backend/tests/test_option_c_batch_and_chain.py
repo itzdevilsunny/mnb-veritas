@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from datetime import date
@@ -9,6 +10,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from sqlalchemy import select
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.routes import get_db_session, get_veritas_router, router as veritas_router
@@ -20,7 +22,12 @@ from veritas_engine import Lab, VeritasRouter
 
 @pytest_asyncio.fixture
 async def batch_app() -> AsyncGenerator[tuple[FastAPI, async_sessionmaker[AsyncSession]], None]:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
     async with engine.begin() as conn:
@@ -214,3 +221,41 @@ async def test_sequential_audit_chain_and_tamper_detection(
     assert tampered_data["valid"] is False
     assert tampered_data["first_broken_audit_id"] == tampered_id
     assert "recomputed hash" in tampered_data["details"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_audit_writes_preserve_chain_integrity(
+    batch_app: tuple[FastAPI, async_sessionmaker[AsyncSession]],
+) -> None:
+    _, session_factory = batch_app
+    import uuid
+    from app.services.audit_chain import write_audit_log, verify_audit_chain_integrity
+
+    async def _write_entry(i: int) -> None:
+        async with session_factory() as session:
+            await write_audit_log(
+                db=session,
+                audit_id=f"aud_stress_{i:04d}_{uuid.uuid4().hex[:6]}",
+                query_text=f"Concurrent stress assertion #{i}",
+                verdict="APPROVE",
+                answer=f"Verified result #{i}",
+                policy_applied="strict",
+                primary_model="anthropic:claude-sonnet-4-6",
+                auditor_model="openai:gpt-4o",
+                failover_triggered=False,
+                latency_ms=50,
+                estimated_cost_usd=0.001,
+                claim_audits=[{"claim_id": f"c_{i}", "verdict": "APPROVE"}],
+                warnings=[],
+            )
+
+    # Launch 10 concurrent writes
+    await asyncio.gather(*[_write_entry(i) for i in range(10)])
+
+    # Verify that the chain is valid and all entries are strictly linked
+    async with session_factory() as session:
+        report = await verify_audit_chain_integrity(session)
+        assert report["valid"] is True
+        assert report["checked_count"] >= 10
+        assert report["first_broken_audit_id"] is None
+

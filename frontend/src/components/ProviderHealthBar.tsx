@@ -10,6 +10,7 @@ interface RawProviderStatus {
   model?: string;
   state: CircuitState;
   configured?: boolean;
+  reachable?: boolean;
   failure_count?: number;
   consecutive_failures?: number;
   cooldown_seconds?: number;
@@ -68,6 +69,7 @@ export function ProviderHealthBar({
           consecutive_failures: item.failure_count ?? item.consecutive_failures ?? 0,
           retry_after_s: item.cooldown_remaining ?? item.cooldown_seconds ?? 0,
           backend: res.backend || (res.redis_connected ? "redis" : "memory"),
+          reachable: item.reachable,
         };
       };
 
@@ -141,9 +143,10 @@ export function ProviderHealthBar({
 
         {providers.map((p) => {
           const isConfigured = p.configured === true;
+          const isUnreachable = p.state === "UNREACHABLE" || p.reachable === false;
           const isOpen = p.state === "OPEN";
           const isHalfOpen = p.state === "HALF_OPEN";
-          const isClosed = p.state === "CLOSED" && isConfigured;
+          const isClosed = p.state === "CLOSED" && isConfigured && !isUnreachable;
 
           let dotClass = "bg-zinc-600";
           let statusText = "UNCONFIGURED";
@@ -153,6 +156,10 @@ export function ProviderHealthBar({
             dotClass = "bg-zinc-600";
             statusText = "UNCONFIGURED";
             badgeBorder = "border-[#27272A] bg-[#141416] text-zinc-500";
+          } else if (isUnreachable) {
+            dotClass = "bg-amber-500/80";
+            statusText = "OFFLINE";
+            badgeBorder = "border-amber-900/40 bg-amber-950/20 text-amber-400";
           } else if (isOpen) {
             dotClass = "bg-rose-500 animate-pulse";
             statusText = `OPEN · Tripped${p.retry_after_s > 0 ? ` (${Math.ceil(p.retry_after_s)}s)` : ""}`;

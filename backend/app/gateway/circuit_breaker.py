@@ -20,6 +20,7 @@ class CircuitState(str, Enum):
     CLOSED = "CLOSED"
     OPEN = "OPEN"
     HALF_OPEN = "HALF_OPEN"
+    UNREACHABLE = "UNREACHABLE"
 
 
 class CircuitBreakerManager:

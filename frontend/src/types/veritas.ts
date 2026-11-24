@@ -202,7 +202,7 @@ export interface PdfUploadResult {
   chunks_created: number;
 }
 
-export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
+export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN" | "UNREACHABLE";
 
 export interface ProviderHealth {
   lab: LabProvider;
@@ -212,6 +212,7 @@ export interface ProviderHealth {
   consecutive_failures: number;
   retry_after_s: number;
   backend: string;
+  reachable?: boolean;
 }
 
 export interface ProvidersHealth {

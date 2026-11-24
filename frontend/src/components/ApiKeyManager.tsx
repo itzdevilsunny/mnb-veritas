@@ -374,7 +374,7 @@ export default function ApiKeyManager({ onClose }: ApiKeyManagerProps) {
           </button>
         </div>
 
-        <pre className="overflow-x-auto rounded-lg border border-[#27272A] bg-[#09090B] p-3.5 font-mono text-xs text-zinc-300 leading-relaxed">
+        <pre className="overflow-x-auto rounded-lg border border-[#27272A] bg-[#09090B] p-3.5 font-mono text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap break-all">
           <code>{sampleCurl}</code>
         </pre>
       </div>
