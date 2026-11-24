@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Key, XCircle } from "lucide-react";
+import { CheckCircle2, Key, X, XCircle } from "lucide-react";
 
 interface AppKey {
   id?: string;
@@ -22,7 +22,11 @@ interface CreatedKeyResponse {
   created_at: string;
 }
 
-export default function ApiKeyManager() {
+interface ApiKeyManagerProps {
+  onClose?: () => void;
+}
+
+export default function ApiKeyManager({ onClose }: ApiKeyManagerProps) {
   const [keys, setKeys] = useState<AppKey[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [creating, setCreating] = useState<boolean>(false);
@@ -146,7 +150,8 @@ export default function ApiKeyManager() {
 
   const rawSecret = createdKey?.raw_key || createdKey?.api_key || "";
   const sampleApiKey = rawSecret || "vrt_live_YOUR_KEY_HERE";
-  const sampleCurl = `curl -X POST https://mnb-veritas.onrender.com/api/veritas/v1/verify \\
+  const apiOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost:8000";
+  const sampleCurl = `curl -X POST ${apiOrigin}/v1/verify \\
   -H "Content-Type: application/json" \\
   -H "X-Veritas-Key: ${sampleApiKey}" \\
   -d '{
@@ -155,30 +160,42 @@ export default function ApiKeyManager() {
   }'`;
 
   return (
-    <div className="space-y-6">
-      {/* Developer Header Banner */}
-      <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-2">
+    <div className="space-y-5">
+      {/* Developer Header Banner with optional close button */}
+      <div className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-500/20 text-emerald-400 font-mono text-xs">
-              <Key className="h-3 w-3" />
+            <span className="flex h-6 w-6 items-center justify-center rounded bg-emerald-500/10 text-emerald-400 font-mono text-xs border border-emerald-500/20">
+              <Key className="h-3.5 w-3.5" />
             </span>
             <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-200">
               Developer &amp; Application API Keys
             </span>
-            <span className="rounded bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-400">
+            <span className="rounded bg-[#18181B] border border-[#27272A] px-2 py-0.5 font-mono text-[10px] text-zinc-400">
               SHA-256 Hashed
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => void fetchKeys()}
-            className="font-mono text-[11px] text-emerald-400 hover:text-emerald-300 transition"
-          >
-            Refresh Keys
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void fetchKeys()}
+              className="rounded border border-[#27272A] bg-[#18181B] px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:text-zinc-100 hover:bg-[#222226] transition"
+            >
+              Refresh
+            </button>
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded border border-[#27272A] bg-[#18181B] p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#222226] transition"
+                title="Close API Keys & Governance modal"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
-        <p className="text-xs text-zinc-400">
+        <p className="text-xs text-zinc-400 leading-relaxed">
           Provision secure application keys for downstream microservices, compliance automations, or internal agent workflows. Each key enforces token-bucket rate limits and multi-model verification governance.
         </p>
       </div>
@@ -212,7 +229,7 @@ export default function ApiKeyManager() {
             <button
               type="button"
               onClick={() => copyToClipboard(rawSecret)}
-              className="rounded-lg bg-emerald-500 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 hover:bg-emerald-400 transition"
+              className="rounded-lg border border-emerald-600/70 bg-emerald-950/60 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-emerald-300 hover:bg-emerald-900/60 transition"
             >
               {copiedKey ? "Copied!" : "Copy Key"}
             </button>
@@ -221,7 +238,7 @@ export default function ApiKeyManager() {
       )}
 
       {/* Create New Key Form */}
-      <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-4">
+      <div className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-4">
         <h3 className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
           Generate New Application Key
         </h3>
@@ -237,7 +254,7 @@ export default function ApiKeyManager() {
               value={appName}
               onChange={(e) => setAppName(e.target.value)}
               placeholder="e.g. RiskEngine-Prod or SlackBot"
-              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-3 py-2 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none font-mono"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-3 py-2 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none font-mono"
             />
           </div>
 
@@ -248,7 +265,7 @@ export default function ApiKeyManager() {
             <select
               value={rateLimit}
               onChange={(e) => setRateLimit(Number(e.target.value))}
-              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-3 py-2 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none font-mono"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-3 py-2 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none font-mono"
             >
               <option value={30}>30 requests / minute (Standard)</option>
               <option value={60}>60 requests / minute (Production)</option>
@@ -261,7 +278,7 @@ export default function ApiKeyManager() {
             <button
               type="submit"
               disabled={creating || !appName.trim()}
-              className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-500 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-emerald-600/70 bg-emerald-950/60 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-900/60 disabled:opacity-50"
             >
               {creating ? "Generating..." : "Generate Key"}
             </button>
@@ -276,8 +293,8 @@ export default function ApiKeyManager() {
       </div>
 
       {/* Active Keys Table */}
-      <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+      <div className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
           <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
             Active Registered Keys ({keys.length})
           </span>
@@ -295,7 +312,7 @@ export default function ApiKeyManager() {
             No application keys registered yet. Generate one above to integrate external apps.
           </div>
         ) : (
-          <div className="divide-y divide-zinc-800/60">
+          <div className="divide-y divide-[#27272A]">
             {keys.map((k) => (
               <div
                 key={k.key_prefix}
@@ -306,14 +323,14 @@ export default function ApiKeyManager() {
                     <span className="font-mono font-bold text-xs text-zinc-200">
                       {k.app_name}
                     </span>
-                    <span className="rounded bg-zinc-800/80 px-2 py-0.5 font-mono text-[10px] text-zinc-400 border border-zinc-700/60">
+                    <span className="rounded bg-[#18181B] px-2 py-0.5 font-mono text-[10px] text-zinc-400 border border-[#27272A]">
                       {k.key_prefix}...
                     </span>
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold border ${
                         k.is_active
-                          ? "bg-emerald-950/80 text-emerald-400 border border-emerald-800/60"
-                          : "bg-rose-950/80 text-rose-400 border border-rose-800/60"
+                          ? "bg-emerald-950/80 text-emerald-400 border-emerald-800/60"
+                          : "bg-rose-950/80 text-rose-400 border-rose-800/60"
                       }`}
                     >
                       {k.is_active ? "ACTIVE" : "REVOKED"}
@@ -341,7 +358,7 @@ export default function ApiKeyManager() {
       </div>
 
       {/* Integration Code Snippet */}
-      <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-3">
+      <div className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
@@ -351,20 +368,20 @@ export default function ApiKeyManager() {
           <button
             type="button"
             onClick={() => copyToClipboard(sampleCurl, true)}
-            className="font-mono text-[11px] text-emerald-400 hover:text-emerald-300 transition"
+            className="rounded border border-[#27272A] bg-[#18181B] px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:text-zinc-100 hover:bg-[#222226] transition"
           >
             {copiedCurl ? "Copied!" : "Copy Command"}
           </button>
         </div>
 
-        <pre className="overflow-x-auto rounded-lg border border-zinc-800/80 bg-[#080C0E] p-3.5 font-mono text-xs text-zinc-300 leading-relaxed">
+        <pre className="overflow-x-auto rounded-lg border border-[#27272A] bg-[#09090B] p-3.5 font-mono text-xs text-zinc-300 leading-relaxed">
           <code>{sampleCurl}</code>
         </pre>
       </div>
 
       {/* Compliance Incident Alerting & Webhooks */}
-      <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+      <div className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
               Outbound Compliance Webhook Alerting
@@ -389,12 +406,12 @@ export default function ApiKeyManager() {
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}
             placeholder="https://hooks.slack.com/services/... or https://your-domain.com/webhook"
-            className="flex-1 rounded-lg border border-zinc-800 bg-[#0B0F12] px-3 py-2 font-mono text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/80 focus:outline-none"
+            className="flex-1 rounded-lg border border-[#27272A] bg-[#09090B] px-3 py-2 font-mono text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/80 focus:outline-none"
           />
           <button
             type="submit"
             disabled={testingWebhook || !webhookUrl.trim()}
-            className="rounded-lg bg-zinc-800 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-zinc-200 hover:bg-zinc-700 transition disabled:opacity-50"
+            className="rounded-lg border border-[#27272A] bg-[#18181B] px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-zinc-200 hover:bg-[#222226] transition disabled:opacity-50"
           >
             {testingWebhook ? "Sending..." : "Test Ping"}
           </button>
