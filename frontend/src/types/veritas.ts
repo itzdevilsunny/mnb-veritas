@@ -219,3 +219,52 @@ export interface ProvidersHealth {
   redis_connected?: boolean;
   providers: ProviderHealth[];
 }
+
+export interface BenchmarkCaseResult {
+  case_id: string;
+  name: string;
+  category: string;
+  query: string;
+  policy: PolicyMode;
+  expected_verdict: string;
+  actual_verdict: string;
+  passed: boolean;
+  latency_ms: number;
+  claims_verified: number;
+  details: string;
+  answer_preview: string;
+  audit_id?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  estimated_cost_usd?: number;
+  quote_verified?: boolean;
+  scale_check_passed?: boolean;
+  fy_check_passed?: boolean;
+  cross_lab_passed?: boolean;
+  verbatim_quotes?: string[];
+  rejection_reasons?: string[];
+}
+
+export interface BenchmarkSuiteReport {
+  suite_id: string;
+  executed_at: string;
+  total_cases: number;
+  passed_cases: number;
+  accuracy_pct: number;
+  hallucination_catch_rate_pct: number;
+  avg_latency_ms: number;
+  total_estimated_cost_usd: number;
+  cases: BenchmarkCaseResult[];
+}
+
+export interface CustomTestCase {
+  case_id: string;
+  name: string;
+  query: string;
+  policy: PolicyMode;
+  ref_date: string;
+  expected_verdict: "APPROVE" | "ABSTAIN" | "QUALIFY" | "ESCALATE";
+  category: string;
+  test_goal: string;
+}
+

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Literal
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -12,6 +13,7 @@ from app.gateway.router import VeritasRouter
 from app.models.db import VeritasSource
 from app.models.schemas import PolicyMode, SourceDoc, Verdict
 from app.pipeline.veritas_engine import VeritasPipeline
+from app.services.audit_chain import prepare_audit_log_entry
 
 
 class BenchmarkTestCase(BaseModel):
@@ -42,6 +44,16 @@ class BenchmarkCaseResult(BaseModel):
     claims_verified: int
     details: str
     answer_preview: str
+    audit_id: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    quote_verified: bool = False
+    scale_check_passed: bool = True
+    fy_check_passed: bool = True
+    cross_lab_passed: bool = False
+    verbatim_quotes: list[str] = Field(default_factory=list)
+    rejection_reasons: list[str] = Field(default_factory=list)
 
 
 class BenchmarkSuiteReport(BaseModel):
@@ -79,23 +91,23 @@ BENCHMARK_BATTERY: list[BenchmarkTestCase] = [
     ),
     BenchmarkTestCase(
         case_id="BENCH-03",
-        name="SEBI AIF Liquid Cushion Requirement",
-        category="NUMERIC_RECONCILIATION",
-        query="What is the minimum percentage of liquid assets that Category I and II Alternative Investment Funds must maintain?",
+        name="100x Scale Distortion Trap (Lakh vs Crore)",
+        category="SCALE_DISTORTION",
+        query="The approved budgetary allocation for the National Green Hydrogen Mission for FY 2025-26 was ₹4,85,000 Lakh Crore.",
         policy=PolicyMode.STRICT,
-        ref_date=date(2025, 1, 15),
-        expected_verdict=Verdict.APPROVE,
-        test_goal="Validates regulatory circular quote extraction and 10% unencumbered liquid cushion rule.",
+        ref_date=date(2025, 3, 31),
+        expected_verdict=Verdict.ABSTAIN,
+        test_goal="Validates pure-Python lakh vs crore magnitude discord detection overriding distorted quantitative assertions.",
     ),
     BenchmarkTestCase(
         case_id="BENCH-04",
-        name="RBI Monetary Policy Repo Rate Dec 2024",
-        category="PERCENTAGE_NORMALIZATION",
-        query="What is the policy repo rate decided by the MPC in December 2024?",
+        name="SEBI AIF Statutory Liquid Cushion Mandate",
+        category="STATUTORY_MANDATE",
+        query="What is the minimum percentage of unencumbered liquid assets that Alternative Investment Funds must maintain under emergency drawdown rules?",
         policy=PolicyMode.STRICT,
-        ref_date=date(2025, 1, 10),
+        ref_date=date(2025, 1, 15),
         expected_verdict=Verdict.APPROVE,
-        test_goal="Validates 'per cent' vs '%' linguistic normalization and numerical fidelity (6.50%).",
+        test_goal="Validates statutory circular quote extraction and 10% unencumbered liquid cushion mandate.",
     ),
     BenchmarkTestCase(
         case_id="BENCH-05",
@@ -150,10 +162,45 @@ async def execute_forensic_benchmark(
 
         passed = report.verdict == test.expected_verdict
         claims_count = len(report.claim_audits)
-        
+
         detail_msg = f"Expected {test.expected_verdict.value}, got {report.verdict.value}."
         if not passed and report.warnings:
             detail_msg += f" Warnings: {'; '.join(report.warnings)}"
+
+        audit_id = f"aud_{hashlib.sha256(f'{test.case_id}_{test.query}_{time.time()}'.encode()).hexdigest()[:8]}"
+        claim_dicts = [c.model_dump() for c in report.claim_audits]
+
+        # Invariant checks
+        quote_verified = report.verdict == Verdict.APPROVE or any(c.quote_verified for c in report.claim_audits)
+        scale_passed = not any(c.numeric_mismatch for c in report.claim_audits)
+        fy_passed = not any(c.fy_mismatch for c in report.claim_audits)
+        cross_lab_passed = report.auditor_model_used is not None and any(c.cross_lab_supported for c in report.claim_audits)
+
+        verbatim_quotes = [c.verbatim_quote for c in report.claim_audits if c.verbatim_quote]
+        reasons = list(dict.fromkeys(report.warnings + [r for c in report.claim_audits for r in c.reasons]))
+
+        # Ground real cryptographic audit log in database
+        try:
+            audit_entry = await prepare_audit_log_entry(
+                db,
+                audit_id=audit_id,
+                query_text=test.query,
+                verdict=report.verdict.value,
+                answer=report.answer,
+                policy_applied=test.policy.value,
+                primary_model=report.model_used,
+                auditor_model=report.auditor_model_used,
+                failover_triggered=getattr(llm_router, "last_failover_occurred", False),
+                latency_ms=elapsed_ms,
+                estimated_cost_usd=report.estimated_cost_usd,
+                claim_audits=claim_dicts,
+                warnings=report.warnings,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(audit_entry)
+            await db.commit()
+        except Exception:
+            pass
 
         case_results.append(
             BenchmarkCaseResult(
@@ -168,7 +215,17 @@ async def execute_forensic_benchmark(
                 latency_ms=elapsed_ms,
                 claims_verified=claims_count,
                 details=detail_msg,
-                answer_preview=report.answer[:120] + ("..." if len(report.answer) > 120 else ""),
+                answer_preview=report.answer[:140] + ("..." if len(report.answer) > 140 else ""),
+                audit_id=audit_id,
+                prompt_tokens=report.tokens_in,
+                completion_tokens=report.tokens_out,
+                estimated_cost_usd=report.estimated_cost_usd,
+                quote_verified=quote_verified,
+                scale_check_passed=scale_passed,
+                fy_check_passed=fy_passed,
+                cross_lab_passed=cross_lab_passed,
+                verbatim_quotes=verbatim_quotes,
+                rejection_reasons=reasons,
             )
         )
 

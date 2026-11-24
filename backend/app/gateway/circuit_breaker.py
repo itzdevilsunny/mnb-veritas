@@ -234,21 +234,31 @@ class CircuitBreakerManager:
             lab_key = lab.value
             fail_count = 0
 
+            cooldown_rem = 0.0
             redis_client = await self._get_redis()
             if redis_client and redis_ok:
                 try:
                     fail_str = await redis_client.get(f"veritas:cb:{lab_key}:failures") or "0"
                     fail_count = int(fail_str)
+                    last_fail_str = await redis_client.get(f"veritas:cb:{lab_key}:last_failure")
+                    if last_fail_str and state == CircuitState.OPEN:
+                        elapsed = time.time() - float(last_fail_str)
+                        cooldown_rem = max(0.0, self.cooldown_seconds - elapsed)
                 except Exception:
                     pass
             else:
-                fail_count = self._local_states.get(lab_key, {}).get("failure_count", 0)
+                local_info = self._local_states.get(lab_key, {})
+                fail_count = local_info.get("failure_count", 0)
+                if state == CircuitState.OPEN:
+                    elapsed = time.time() - local_info.get("last_failure_time", 0.0)
+                    cooldown_rem = max(0.0, self.cooldown_seconds - elapsed)
 
             providers_status[lab_key] = {
                 "lab": lab_key,
                 "state": state.value,
                 "failure_count": fail_count,
                 "cooldown_seconds": self.cooldown_seconds,
+                "cooldown_remaining": round(cooldown_rem, 1),
             }
 
         active_count = sum(1 for p in providers_status.values() if p["state"] != CircuitState.OPEN.value)

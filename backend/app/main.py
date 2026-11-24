@@ -270,13 +270,16 @@ async def seed_initial_truth_corpuses_and_audits() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure tables exist
+    if engine.dialect.name == "postgresql":
+        try:
+            async with engine.connect() as ext_conn:
+                await ext_conn.execution_options(isolation_level="AUTOCOMMIT")
+                await ext_conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                await ext_conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        except Exception as ext_err:
+            logger.warning("Postgres extensions initialization non-fatal: %s", ext_err)
+
     async with engine.begin() as conn:
-        if engine.dialect.name == "postgresql":
-            try:
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-            except Exception as ext_err:
-                logger.warning("Postgres extensions initialization non-fatal: %s", ext_err)
         await conn.run_sync(Base.metadata.create_all)
 
         # Handle SQLite column migrations if database already existed

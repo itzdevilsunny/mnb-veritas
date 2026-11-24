@@ -78,8 +78,10 @@ async def get_providers_health(
 ) -> dict[str, Any]:
     """Returns live circuit breaker state and metadata for all multi-lab LLM providers."""
     status_data = await router_inst.circuit_breaker.get_all_status()
+    providers_dict = status_data.get("providers", {})
+
     # Enrich provider metadata with configured model and engine backend
-    for lab_key, p_info in status_data.get("providers", {}).items():
+    for lab_key, p_info in providers_dict.items():
         try:
             lab_enum = Lab(lab_key)
             provider = router_inst.providers.get(lab_enum)
@@ -88,14 +90,25 @@ async def get_providers_health(
                 p_info["configured"] = True
                 p_info["backend"] = "live_api"
             else:
+                p_info["model"] = ""
                 p_info["configured"] = False
                 p_info["backend"] = "unconfigured"
         except Exception:
             pass
 
-    providers_dict = status_data.get("providers", {})
-    status_data["total_configured"] = len(providers_dict)
-    status_data["active_count"] = sum(1 for p in providers_dict.values() if p.get("state") != "OPEN")
+    status_data["total_configured"] = sum(1 for p in providers_dict.values() if p.get("configured", False))
+    status_data["active_count"] = sum(
+        1 for p in providers_dict.values()
+        if p.get("configured", False) and p.get("state") == "CLOSED"
+    )
+    status_data["open_count"] = sum(
+        1 for p in providers_dict.values()
+        if p.get("state") == "OPEN"
+    )
+    status_data["half_open_count"] = sum(
+        1 for p in providers_dict.values()
+        if p.get("state") == "HALF_OPEN"
+    )
     return status_data
 
 
@@ -120,6 +133,21 @@ async def reset_provider_circuit(
         "message": f"Circuit for {lab_enum.value} reset to CLOSED.",
         "lab": lab_enum.value,
         "state": "CLOSED",
+    }
+
+
+@router.post("/health/providers/reset-all")
+async def reset_all_provider_circuits(
+    router_inst: VeritasRouter = Depends(get_veritas_router),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> dict[str, Any]:
+    """Manually resets all provider circuit breakers to CLOSED."""
+    for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]:
+        await router_inst.circuit_breaker.reset(lab)
+    return {
+        "status": "ok",
+        "message": "All provider circuit breakers reset to CLOSED.",
+        "active_count": len(router_inst.providers),
     }
 
 
