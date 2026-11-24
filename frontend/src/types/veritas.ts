@@ -1,4 +1,4 @@
-export type LabProvider = "anthropic" | "openai" | "google" | "xai" | "auto";
+export type LabProvider = "anthropic" | "openai" | "google" | "xai" | "ollama" | "auto";
 export type PolicyMode = "standard" | "balanced" | "strict";
 export type Verdict = "APPROVE" | "QUALIFY" | "ABSTAIN" | "ESCALATE";
 export type VeritasVerdict = Verdict;

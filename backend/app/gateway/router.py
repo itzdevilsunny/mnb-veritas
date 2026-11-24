@@ -17,11 +17,12 @@ class VeritasRouter:
     """
 
     CROSS_LAB_ORDER: dict[Lab, list[Lab]] = {
-        Lab.ANTHROPIC: [Lab.OPENAI, Lab.GOOGLE, Lab.XAI],
-        Lab.OPENAI: [Lab.GOOGLE, Lab.ANTHROPIC, Lab.XAI],
-        Lab.GOOGLE: [Lab.OPENAI, Lab.ANTHROPIC, Lab.XAI],
-        Lab.XAI: [Lab.GOOGLE, Lab.OPENAI, Lab.ANTHROPIC],
-        Lab.AUTO: [Lab.GOOGLE, Lab.OPENAI, Lab.ANTHROPIC, Lab.XAI],
+        Lab.ANTHROPIC: [Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA],
+        Lab.OPENAI: [Lab.GOOGLE, Lab.ANTHROPIC, Lab.XAI, Lab.OLLAMA],
+        Lab.GOOGLE: [Lab.OPENAI, Lab.ANTHROPIC, Lab.XAI, Lab.OLLAMA],
+        Lab.XAI: [Lab.GOOGLE, Lab.OPENAI, Lab.ANTHROPIC, Lab.OLLAMA],
+        Lab.OLLAMA: [Lab.GOOGLE, Lab.OPENAI, Lab.ANTHROPIC, Lab.XAI],
+        Lab.AUTO: [Lab.GOOGLE, Lab.OPENAI, Lab.ANTHROPIC, Lab.XAI, Lab.OLLAMA],
     }
 
     def __init__(
@@ -75,9 +76,33 @@ class VeritasRouter:
         Rule: Cross-Lab Independence. A generator model CANNOT audit its own draft.
         """
         candidates = self.CROSS_LAB_ORDER.get(
-            generator_lab, [Lab.OPENAI, Lab.GOOGLE, Lab.ANTHROPIC, Lab.XAI]
+            generator_lab, [Lab.OPENAI, Lab.GOOGLE, Lab.ANTHROPIC, Lab.XAI, Lab.OLLAMA]
         )
         return [lab for lab in candidates if lab != generator_lab and lab in self.providers]
+
+    async def call_cross_lab_concurrent(
+        self,
+        candidate_labs: list[Lab],
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.0,
+        excluded_labs: set[Lab] | None = None,
+    ) -> tuple[str, LLMProvider, MoETelemetry]:
+        """
+        Queries candidate secondary auditor labs concurrently via asyncio.gather.
+        Skips OPEN circuits in 0ms, fires healthy distinct labs simultaneously,
+        and returns the first valid entailment verification result.
+        """
+        content, provider, telemetry = await self.moe.execute_concurrent_audit(
+            candidate_labs=candidate_labs,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            excluded_labs=excluded_labs,
+        )
+        self.last_failover_occurred = telemetry.failover_triggered
+        self.last_telemetry = telemetry
+        return content, provider, telemetry
 
 
 MultiLabGateway = VeritasRouter

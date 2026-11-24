@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     AUDITOR_XAI_MODEL: str = "grok-2"
     XAI_MODEL: str = "grok-2"
 
+    # Local LLM (Ollama / vLLM OpenAI-compatible)
+    OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
+    DEFAULT_OLLAMA_MODEL: str = "llama3.2:latest"
+    FAST_OLLAMA_MODEL: str = "llama3.2:latest"
+    AUDITOR_OLLAMA_MODEL: str = "llama3.2:latest"
+    OLLAMA_MODEL: str = "llama3.2:latest"
+
     # Governance & Auth
     DEFAULT_POLICY_MODE: str = "strict"
     VERITAS_API_KEY: str = "veritas-local-dev-key-2026"

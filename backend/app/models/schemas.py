@@ -12,6 +12,7 @@ class Lab(str, Enum):
     OPENAI = "openai"
     GOOGLE = "google"
     XAI = "xai"
+    OLLAMA = "ollama"
     AUTO = "auto"
 
 

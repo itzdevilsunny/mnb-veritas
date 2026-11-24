@@ -54,7 +54,7 @@ class VeritasPipeline:
         source_ids: list[str] | None = None,
     ) -> VerificationReport:
         today = ref_date or date.today()
-        labs = preferred_labs or [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI]
+        labs = preferred_labs or [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]
 
         # Stage 2: Retrieve & filter temporal validity
         valid_docs, expired_docs = retrieve_relevant_sources(
@@ -208,7 +208,7 @@ class VeritasPipeline:
         """
         import json
         today = ref_date or date.today()
-        labs = preferred_labs or [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI]
+        labs = preferred_labs or [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]
 
         # Stage 1: Retrieval
         valid_docs, expired_docs = retrieve_relevant_sources(

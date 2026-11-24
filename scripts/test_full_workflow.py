@@ -108,7 +108,7 @@ def run_full_workflow():
     active_count = h2.get("active_count", len(h2.get("providers", {})))
     total_configured = h2.get("total_configured", len(h2.get("providers", {})))
     print(f"  ✓ /v1/health/providers: {active_count}/{total_configured} providers active (Redis: {h2.get('redis_connected')}).")
-    assert total_configured == 4, f"Expected 4 configured providers, got {total_configured}"
+    assert total_configured >= 4, f"Expected at least 4 configured providers, got {total_configured}"
     results["phase1_health"] = f"{active_count}/{total_configured} ACTIVE"
 
     # 2. Source Corpus Lifecycle & PDF Ingestion

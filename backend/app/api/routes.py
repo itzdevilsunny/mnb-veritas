@@ -96,7 +96,7 @@ async def reset_provider_circuit(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid lab '{lab}'. Must be one of: anthropic, openai, google, xai.",
+            detail=f"Invalid lab '{lab}'. Must be one of: anthropic, openai, google, xai, ollama.",
         )
 
     await router_inst.circuit_breaker.reset(lab_enum)

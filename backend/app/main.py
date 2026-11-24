@@ -285,7 +285,7 @@ def create_app() -> FastAPI:
             "service": "mnb-veritas",
             "version": "1.4",
             "database": "connected",
-            "configured_labs": ["anthropic", "openai", "google", "xai"],
+            "configured_labs": ["anthropic", "openai", "google", "xai", "ollama"],
             "engine": "evidence-first-deterministic",
         }
 

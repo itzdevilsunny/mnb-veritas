@@ -40,6 +40,12 @@ PRICING_PER_1M: dict[str, tuple[float, float]] = {
     "gemini-1.5-pro": (1.25, 5.00),
     "gemini-2.0-flash": (0.10, 0.40),
     "grok-2": (2.00, 10.00),
+    # Local Models (Ollama - zero API cost)
+    "llama3.2:latest": (0.00, 0.00),
+    "llama3.2": (0.00, 0.00),
+    "llama3.1": (0.00, 0.00),
+    "mistral": (0.00, 0.00),
+    "deepseek-r1": (0.00, 0.00),
     # Fallback & Compatibility Aliases
     "claude-sonnet-5-5": (3.00, 15.00),
     "claude-opus-5-5": (15.00, 75.00),

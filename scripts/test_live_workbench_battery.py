@@ -85,6 +85,7 @@ def main():
         print(f"  • Invariant Tested : {item['invariant']}")
         
         pol = item.get("policy", "strict")
+        time.sleep(1.0)
         t0 = time.perf_counter()
         res = verify_query(item["query"], policy=pol)
         elapsed = int((time.perf_counter() - t0) * 1000)

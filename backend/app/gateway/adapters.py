@@ -12,17 +12,21 @@ from app.models.schemas import Lab
 logger = logging.getLogger("veritas.gateway.adapters")
 
 FATAL_ERROR_KEYWORDS = {
-    "quota",
+    "credit_balance_exhausted",
+    "insufficient_quota",
     "credit",
     "balance",
     "unauthorized",
     "invalid_api_key",
     "authentication",
     "billing",
-    "exceeded",
+    "account_deactivated",
     "401",
     "402",
-    "429",
+    "403",
+    "connection refused",
+    "connecterror",
+    "all connection attempts failed",
 }
 
 
@@ -182,7 +186,7 @@ class GeminiProvider(LLMProvider):
                     },
                 }
                 resp = await client.post(url, json=payload)
-                if resp.status_code in (404, 503) or "not_found" in resp.text.lower() or "demand" in resp.text.lower():
+                if resp.status_code in (404, 429, 503) or "not_found" in resp.text.lower() or "demand" in resp.text.lower() or "resource_exhausted" in resp.text.lower():
                     continue
                 resp.raise_for_status()
                 data = resp.json()
@@ -200,12 +204,70 @@ class GeminiProvider(LLMProvider):
                         return text
             except Exception as exc:
                 last_err = exc
+                err_lower = str(exc).lower()
+                if "404" in err_lower or "503" in err_lower or "429" in err_lower or "not_found" in err_lower or "resource_exhausted" in err_lower:
+                    continue
                 if is_fatal_auth_or_quota_error(exc):
                     raise exc
-                err_lower = str(exc).lower()
-                if "404" in err_lower or "503" in err_lower or "not_found" in err_lower:
-                    continue
                 raise exc
 
         raise last_err or RuntimeError(f"Gemini generation failed for {self.model}")
+
+
+class OllamaProvider(LLMProvider):
+    """Local LLM adapter targeting Ollama or local vLLM OpenAI-compatible endpoint."""
+    lab = Lab.OLLAMA
+
+    def __init__(
+        self,
+        model: str = "llama3.2:latest",
+        base_url: str = "http://localhost:11434/v1",
+        api_key: str = "ollama",
+    ) -> None:
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key or "ollama"
+        self.fallback_models = ["llama3.2:latest", "llama3.2", "llama3.1", "mistral", "deepseek-r1"]
+        self.last_usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+
+    async def generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            http_client=get_shared_http_client(),
+            max_retries=0,
+        )
+        models_to_try = [self.model] + [m for m in self.fallback_models if m != self.model]
+        last_err: Exception | None = None
+
+        for m in models_to_try:
+            try:
+                resp = await client.chat.completions.create(
+                    model=m,
+                    temperature=temperature,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                self.model = m
+                if resp.usage:
+                    self.last_usage = {
+                        "prompt_tokens": resp.usage.prompt_tokens or 0,
+                        "completion_tokens": resp.usage.completion_tokens or 0,
+                    }
+                return (resp.choices[0].message.content or "").strip()
+            except Exception as exc:
+                last_err = exc
+                if is_fatal_auth_or_quota_error(exc):
+                    raise exc
+                err_str = str(exc).lower()
+                if "model_not_found" in err_str or "404" in err_str or "does not exist" in err_str:
+                    continue
+                raise exc
+
+        raise last_err or RuntimeError(f"Ollama generation failed for {self.model}")
+
 

@@ -5,6 +5,7 @@ from app.core.config import get_settings
 from app.gateway.adapters import (
     AnthropicProvider,
     GeminiProvider,
+    OllamaProvider,
     OpenAICompatProvider,
 )
 from app.gateway.base import LLMProvider
@@ -60,6 +61,13 @@ def build_default_router(force_refresh: bool = False) -> VeritasRouter:
             api_key=settings.XAI_API_KEY,
             base_url="https://api.x.ai/v1",
             fallback_models=["grok-2", "grok-2-latest", "grok-beta"],
+        )
+
+    # Local LLM (Ollama)
+    if getattr(settings, "OLLAMA_BASE_URL", None):
+        providers[Lab.OLLAMA] = OllamaProvider(
+            model=settings.OLLAMA_MODEL,
+            base_url=settings.OLLAMA_BASE_URL,
         )
 
     logger.info("VeritasRouter initialized with %d live providers: %s", len(providers), list(providers.keys()))

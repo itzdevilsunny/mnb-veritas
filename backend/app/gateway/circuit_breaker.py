@@ -49,7 +49,7 @@ class CircuitBreakerManager:
                 "failure_count": 0,
                 "last_failure_time": 0.0,
             }
-            for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI]
+            for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]
         }
 
     async def _get_redis(self) -> aioredis.Redis | None:
@@ -229,7 +229,7 @@ class CircuitBreakerManager:
         redis_ok = await self.is_redis_connected()
         providers_status: dict[str, Any] = {}
 
-        for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI]:
+        for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]:
             state = await self.get_state(lab)
             lab_key = lab.value
             fail_count = 0

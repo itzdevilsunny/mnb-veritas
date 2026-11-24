@@ -32,12 +32,11 @@ async def audit_claim_with_cross_lab_model(
     user_prompt = f"Claim: {claim_text}\nVerbatim Quote: {verbatim_quote}"
 
     try:
-        raw, provider, _ = await router.call_with_failover(
-            preferred_labs=auditor_chain,
+        raw, provider, _ = await router.call_cross_lab_concurrent(
+            candidate_labs=auditor_chain,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             excluded_labs={generator_lab},
-            route=MoERoute.DEEP_AUDIT,
         )
         parsed = parse_json_object(raw)
         supported = bool(parsed.get("supported", False))

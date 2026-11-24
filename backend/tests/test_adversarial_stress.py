@@ -164,6 +164,143 @@ async def test_cross_lab_auditor_never_matches_primary_generator() -> None:
     assert auditor_provider.lab != Lab.ANTHROPIC
 
 
+@pytest.mark.asyncio
+async def test_concurrent_cross_lab_audit_fanout_selects_first_healthy_auditor() -> None:
+    """Tests that concurrent audit fanout queries candidate secondary labs simultaneously and returns healthy result."""
+    from app.gateway.base import LLMProvider
+
+    class FailingSecondaryProvider(LLMProvider):
+        lab = Lab.OPENAI
+        model = "gpt-4o-mini"
+        async def generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
+            raise RuntimeError("429 Insufficient quota: credit_balance_exhausted")
+
+    class WorkingSecondaryProvider(LLMProvider):
+        lab = Lab.OLLAMA
+        model = "llama3.2:latest"
+        async def generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
+            import json
+            return json.dumps({"supported": True, "reason": "Entailed by source quote."})
+
+    router = VeritasRouter({
+        Lab.GOOGLE: MockProvider(Lab.GOOGLE, "gemini-3-flash-preview"),
+        Lab.OPENAI: FailingSecondaryProvider(),
+        Lab.OLLAMA: WorkingSecondaryProvider(),
+    })
+
+    # Generator is Google -> candidates are OpenAI and Ollama
+    auditor_chain = router.get_auditor_chain(Lab.GOOGLE)
+    assert Lab.GOOGLE not in auditor_chain
+    assert Lab.OPENAI in auditor_chain
+    assert Lab.OLLAMA in auditor_chain
+
+    content, provider, telemetry = await router.call_cross_lab_concurrent(
+        candidate_labs=auditor_chain,
+        system_prompt="You are a compliance auditor",
+        user_prompt="Verify claim",
+        excluded_labs={Lab.GOOGLE},
+    )
+
+    assert provider.lab == Lab.OLLAMA
+    assert "supported" in content
+
+
+@pytest.mark.asyncio
+async def test_ollama_provider_circuit_trips_on_connection_refusal_and_skips_in_0ms() -> None:
+    """Verifies that an unreachable local LLM endpoint trips to OPEN immediately and subsequent calls skip in 0ms."""
+    import time
+    from app.gateway.adapters import OllamaProvider
+    from app.gateway.circuit_breaker import CircuitBreakerManager, CircuitState
+    from app.gateway.moe_router import MoERoute, MoERouter
+
+    # Point to an unreachable port
+    offline_provider = OllamaProvider(
+        model="llama3.2:latest",
+        base_url="http://127.0.0.1:59999/v1",
+    )
+    cb = CircuitBreakerManager(failure_threshold=1, cooldown_seconds=30.0, redis_url="inmemory")
+    moe = MoERouter(providers={Lab.OLLAMA: offline_provider}, circuit_breaker=cb)
+
+    # First attempt: connection refused -> trips circuit to OPEN
+    with pytest.raises(Exception):
+        await moe.execute_route(
+            candidate_labs=[Lab.OLLAMA],
+            system_prompt="system",
+            user_prompt="hello",
+            route=MoERoute.FAST_EXTRACTION,
+        )
+
+    # State must now be OPEN
+    assert await cb.get_state(Lab.OLLAMA) == CircuitState.OPEN
+
+    # Second attempt: must skip in 0ms without network call
+    t0 = time.perf_counter()
+    with pytest.raises(RuntimeError) as exc_info:
+        await moe.execute_route(
+            candidate_labs=[Lab.OLLAMA],
+            system_prompt="system",
+            user_prompt="hello",
+            route=MoERoute.FAST_EXTRACTION,
+        )
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    assert elapsed_ms < 50.0  # Skipped in 0ms
+    assert "All circuits exhausted or excluded" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_strict_abstention_when_all_secondary_auditors_fail() -> None:
+    """Tests that in STRICT mode, if no secondary auditor can verify, engine strictly forces ABSTAIN with 'No answer possible'."""
+    from app.pipeline.s3_examine_llm import audit_claim_with_cross_lab_model
+    from app.pipeline.s4_decide import evaluate_policy_verdict
+    from app.models.schemas import ExtractedClaim
+
+    class ExhaustedProvider(MockProvider):
+        async def generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
+            raise RuntimeError("429 quota exhausted")
+
+    router = VeritasRouter({
+        Lab.GOOGLE: MockProvider(Lab.GOOGLE, "gemini-3-flash-preview"),
+        Lab.OPENAI: ExhaustedProvider(Lab.OPENAI, "gpt-4o-mini"),
+    })
+
+    # 1. Cross-lab audit call fails
+    supported, reason, auditor = await audit_claim_with_cross_lab_model(
+        router=router,
+        claim_text="Total outlay is ₹11,11,111 crore.",
+        verbatim_quote="Total outlay is ₹11,11,111 crore.",
+        generator_lab=Lab.GOOGLE,
+    )
+    assert supported is False
+    assert auditor is None
+    assert "unreachable or exhausted" in reason
+
+    # 2. Policy evaluation in STRICT mode forces ABSTAIN
+    from app.models.schemas import ClaimAuditResult, ExtractionBundle
+    bundle = ExtractionBundle(
+        draft_answer="Total outlay is ₹11,11,111 crore.",
+        claims=[],
+    )
+    audit = ClaimAuditResult(
+        claim_id="c1",
+        claim_text="Total outlay is ₹11,11,111 crore.",
+        is_factual=True,
+        quote_verified=True,
+        numeric_mismatch=False,
+        fy_mismatch=False,
+        cross_lab_supported=False,
+        reasons=[reason],
+        verbatim_quote="Total outlay is ₹11,11,111 crore.",
+    )
+    verdict, answer, _ = evaluate_policy_verdict(
+        bundle=bundle,
+        audits=[audit],
+        policy=PolicyMode.STRICT,
+        has_valid_sources=True,
+    )
+    assert verdict == Verdict.ABSTAIN
+    assert answer == "No answer possible"
+
+
 # =====================================================================
 # 6. CONCURRENT VERIFY & STREAMING LOAD TEST
 # =====================================================================
