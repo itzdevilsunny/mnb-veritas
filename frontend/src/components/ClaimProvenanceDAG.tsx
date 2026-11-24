@@ -23,13 +23,13 @@ export function ClaimProvenanceDAG({
   const isStrict = policy.toLowerCase() === "strict";
 
   return (
-    <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-3.5 space-y-2.5 font-sans">
-      <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 pb-1.5 border-b border-zinc-800/50">
+    <div className="rounded-lg border border-[#27272A] bg-[#111114] p-3 space-y-2 font-sans">
+      <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 pb-1.5 border-b border-[#27272A]">
         <span className="flex items-center gap-1.5 font-semibold text-zinc-300">
-          <span className="inline-block h-2 w-2 rounded-full bg-cyan-400"></span>
-          CLAIM PROVENANCE DAG · {claim.claim_id}
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
+          PROVENANCE GRAPH · {claim.claim_id}
         </span>
-        <span className="uppercase text-[10px] text-zinc-500">Pipeline Flow: S1 → S2 → S3 → S4</span>
+        <span className="uppercase text-[10px] text-zinc-500">Pipeline Flow: S1 → S2 → S3 → S4 → S5</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-stretch text-xs font-mono">

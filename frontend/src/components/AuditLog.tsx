@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { Download, Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import type { AuditChainStatus, AuditRow } from "@/types/veritas";
 import { ClaimCard } from "./ClaimCard";
@@ -180,7 +181,8 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
                               rel="noreferrer"
                               className="rounded border border-emerald-700/60 bg-emerald-950/40 px-2.5 py-1 text-emerald-300 hover:bg-emerald-900/50 transition flex items-center gap-1 font-semibold"
                             >
-                              <span>📄 Export PDF</span>
+                              <Download className="h-3 w-3 text-emerald-400" />
+                              <span>Export PDF</span>
                             </a>
                             <a
                               href={`/api/audits/${r.audit_id}/certificate?format=json`}
@@ -189,7 +191,8 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
                               rel="noreferrer"
                               className="rounded border border-zinc-700 bg-zinc-900/80 px-2.5 py-1 text-zinc-300 hover:bg-zinc-800 transition flex items-center gap-1"
                             >
-                              <span>🔒 JSON Seal</span>
+                              <Shield className="h-3 w-3 text-cyan-400" />
+                              <span>JSON Seal</span>
                             </a>
                           </div>
                         </div>

@@ -1,23 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { RefreshCw, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import type { CircuitState, LabProvider, ProviderHealth, ProvidersHealth } from "@/types/veritas";
-import { btnGhost } from "./ui";
 
 interface RawProviderStatus {
   lab: LabProvider;
   model?: string;
   state: CircuitState;
+  configured?: boolean;
   failure_count?: number;
   consecutive_failures?: number;
   cooldown_seconds?: number;
+  last_error?: string;
+  backend?: string;
 }
 
 interface RawProvidersResponse {
   backend?: string;
   redis_connected?: boolean;
   providers?: RawProviderStatus[] | Record<string, RawProviderStatus>;
+  total_configured?: number;
+  active_count?: number;
 }
 
 const LABELS: Record<string, string> = {
@@ -25,43 +30,49 @@ const LABELS: Record<string, string> = {
   openai: "OpenAI",
   google: "Gemini",
   xai: "Grok",
+  ollama: "Ollama",
 };
 
-function tone(p: ProviderHealth) {
-  if (p.configured === false) return { pill: "border-zinc-800 bg-zinc-950/70 text-zinc-500", dot: "bg-zinc-600" };
-  if (p.state === "CLOSED") return { pill: "border-emerald-700/60 bg-emerald-950/50 text-emerald-300", dot: "bg-emerald-400" };
-  if (p.state === "HALF_OPEN") return { pill: "border-amber-700/60 bg-amber-950/50 text-amber-300", dot: "bg-amber-400" };
-  return { pill: "border-rose-700/70 bg-rose-950/60 text-rose-300", dot: "bg-rose-400 animate-pulse" };
-}
-
-export function ProviderHealthBar({ refreshKey = 0, pollMs = 15000 }: { refreshKey?: number; pollMs?: number }) {
+export function ProviderHealthBar({
+  refreshKey = 0,
+  pollMs = 10000,
+  onResetComplete,
+}: {
+  refreshKey?: number;
+  pollMs?: number;
+  onResetComplete?: () => void;
+}) {
   const [data, setData] = useState<ProvidersHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<boolean>(false);
 
   const load = useCallback(async () => {
     try {
+      setSyncing(true);
       const res = await api<RawProvidersResponse>("/v1/health/providers");
       const rawProviders = res?.providers;
-      const provList: ProviderHealth[] = Array.isArray(rawProviders)
-        ? rawProviders.map((item) => ({
-            lab: item.lab,
-            configured: true,
-            model: item.model || item.lab,
-            state: item.state,
-            consecutive_failures: item.failure_count || item.consecutive_failures || 0,
-            retry_after_s: item.cooldown_seconds || 0,
-            backend: res.backend || (res.redis_connected ? "redis" : "memory"),
-          }))
-        : Object.values(rawProviders || {}).map((item) => ({
-            lab: item.lab,
-            configured: true,
-            model: item.model || item.lab,
-            state: item.state,
-            consecutive_failures: item.failure_count || item.consecutive_failures || 0,
-            retry_after_s: item.cooldown_seconds || 0,
-            backend: res.backend || (res.redis_connected ? "redis" : "memory"),
-          }));
+      
+      const normalizeItem = (item: RawProviderStatus, key?: string): ProviderHealth => {
+        const labKey = (item.lab || key || "ollama") as LabProvider;
+        const isConfigured = item.configured !== false && item.backend !== "unconfigured";
+        return {
+          lab: labKey,
+          configured: isConfigured,
+          model: item.model || item.lab || labKey,
+          state: item.state || "CLOSED",
+          consecutive_failures: item.failure_count ?? item.consecutive_failures ?? 0,
+          retry_after_s: item.cooldown_seconds ?? 0,
+          backend: res.backend || (res.redis_connected ? "redis" : "memory"),
+        };
+      };
+
+      let provList: ProviderHealth[] = [];
+      if (Array.isArray(rawProviders)) {
+        provList = rawProviders.map((item) => normalizeItem(item));
+      } else if (rawProviders && typeof rawProviders === "object") {
+        provList = Object.entries(rawProviders).map(([k, item]) => normalizeItem(item, k));
+      }
 
       setData({
         backend: res.backend || (res.redis_connected ? "redis" : "memory"),
@@ -70,6 +81,8 @@ export function ProviderHealthBar({ refreshKey = 0, pollMs = 15000 }: { refreshK
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gateway unreachable");
+    } finally {
+      setSyncing(false);
     }
   }, []);
 
@@ -88,6 +101,7 @@ export function ProviderHealthBar({ refreshKey = 0, pollMs = 15000 }: { refreshK
     try {
       await api(`/v1/health/providers/${lab}/reset`, { method: "POST" });
       await load();
+      if (onResetComplete) onResetComplete();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Reset failed");
     } finally {
@@ -96,50 +110,99 @@ export function ProviderHealthBar({ refreshKey = 0, pollMs = 15000 }: { refreshK
   };
 
   const providers = data?.providers || [];
+  const openCount = providers.filter((p) => p.state === "OPEN").length;
+  const isRedis = data?.backend === "redis";
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-xs">
+    <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-lg border border-[#27272A] bg-[#111114] px-3 py-2 text-xs font-mono">
+      {/* Left: Providers Status Dots */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Gateway</span>
-        {!data && !error && <span className="font-mono text-zinc-500">checking…</span>}
-        {error && !data && (
-          <span className="rounded-full border border-rose-800/70 bg-rose-950/50 px-2.5 py-0.5 font-mono text-[11px] text-rose-300">
-            offline — {error}
-          </span>
-        )}
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          GATEWAY
+        </span>
+
         {providers.map((p) => {
-          const t = tone(p);
-          const canReset = p.state !== "CLOSED";
+          const isConfigured = p.configured !== false;
+          const isOpen = p.state === "OPEN";
+          const isHalfOpen = p.state === "HALF_OPEN";
+          const isClosed = p.state === "CLOSED" && isConfigured;
+
+          let dotClass = "bg-zinc-600";
+          let statusText = "UNCONFIGURED";
+          let badgeBorder = "border-[#27272A] bg-[#18181B] text-zinc-500";
+
+          if (!isConfigured) {
+            dotClass = "bg-zinc-600";
+            statusText = "UNCONFIGURED";
+            badgeBorder = "border-[#27272A] bg-[#141416] text-zinc-500";
+          } else if (isOpen) {
+            dotClass = "bg-rose-500 animate-pulse";
+            statusText = `OPEN · Tripped${p.retry_after_s ? ` (${Math.ceil(p.retry_after_s)}s)` : ""}`;
+            badgeBorder = "border-rose-900/60 bg-rose-950/40 text-rose-300";
+          } else if (isHalfOpen) {
+            dotClass = "bg-amber-400 animate-pulse";
+            statusText = "PROBING";
+            badgeBorder = "border-amber-900/60 bg-amber-950/40 text-amber-300";
+          } else if (isClosed) {
+            dotClass = "bg-emerald-400";
+            statusText = "ACTIVE";
+            badgeBorder = "border-emerald-900/40 bg-emerald-950/30 text-emerald-300";
+          }
+
           return (
-            <span
+            <div
               key={p.lab}
-              title={`${p.model ?? "active"} · failures ${p.consecutive_failures} · ${p.backend}`}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] ${t.pill}`}
+              title={`${LABELS[p.lab] || p.lab} · ${statusText} · Model: ${p.model || p.lab} · Failures: ${p.consecutive_failures}`}
+              className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] ${badgeBorder}`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} />
-              <span className="font-semibold">{LABELS[p.lab] || p.lab}</span>
-              <span className="opacity-80">
-                {p.state === "OPEN" ? `OPEN ${Math.ceil(p.retry_after_s || 30)}s` : p.state}
-              </span>
-              {canReset && (
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
+              <span className="font-semibold text-zinc-200">{LABELS[p.lab] || p.lab}</span>
+              <span className="text-[10px] opacity-75">{statusText}</span>
+              {isOpen && (
                 <button
                   type="button"
                   disabled={resetting === p.lab}
                   onClick={() => void reset(p.lab)}
-                  className="ml-0.5 rounded border border-current/30 px-1.5 text-[10px] font-semibold uppercase hover:bg-zinc-900 disabled:opacity-50"
+                  title={`Reset ${LABELS[p.lab] || p.lab} circuit breaker`}
+                  className="ml-1 inline-flex items-center gap-0.5 rounded border border-rose-700/60 bg-rose-900/60 px-1 py-0.2 text-[9px] uppercase tracking-wider text-rose-200 hover:bg-rose-800 disabled:opacity-50"
                 >
-                  {resetting === p.lab ? "…" : "Reset"}
+                  <RotateCcw className="h-2.5 w-2.5" />
+                  <span>{resetting === p.lab ? "…" : "reset"}</span>
                 </button>
               )}
-            </span>
+            </div>
           );
         })}
       </div>
-      <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-400">
-        {error && data && <span className="text-rose-300">{error}</span>}
-        {data && <span className="rounded border border-zinc-800 bg-zinc-950 px-2 py-0.5 text-zinc-300">state: {data.backend}</span>}
-        <button type="button" onClick={() => void load()} className={btnGhost}>
-          Sync
+
+      {/* Right: Summary Badge & State Cache Indicator */}
+      <div className="flex items-center gap-2 text-[11px]">
+        {error && <span className="text-rose-400 text-[10px]">{error}</span>}
+        
+        {/* Circuit summary badge */}
+        <span
+          className={`rounded border px-2 py-0.5 font-semibold text-[10px] ${
+            openCount > 0
+              ? "border-rose-800/80 bg-rose-950/50 text-rose-300"
+              : "border-emerald-800/60 bg-emerald-950/30 text-emerald-400"
+          }`}
+        >
+          {openCount > 0 ? `CIRCUITS ${openCount} OPEN` : "ALL CIRCUITS CLOSED"}
+        </span>
+
+        {/* Distributed cache backend */}
+        <span className="rounded border border-[#27272A] bg-[#18181B] px-2 py-0.5 text-[10px] text-zinc-400">
+          CACHE: <span className="text-zinc-200">{isRedis ? "REDIS" : "MEMORY"}</span>
+        </span>
+
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={syncing}
+          title="Sync live gateway health"
+          className="inline-flex h-6 w-6 items-center justify-center rounded border border-[#27272A] bg-[#18181B] text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition"
+        >
+          <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin text-zinc-200" : ""}`} />
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, Key, XCircle } from "lucide-react";
 
 interface AppKey {
   id?: string;
@@ -160,7 +161,7 @@ export default function ApiKeyManager() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-500/20 text-emerald-400 font-mono text-xs">
-              🔑
+              <Key className="h-3 w-3" />
             </span>
             <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-200">
               Developer &amp; Application API Keys
@@ -407,7 +408,11 @@ export default function ApiKeyManager() {
                 : "bg-rose-950/40 border-rose-800/60 text-rose-300"
             }`}
           >
-            {webhookResult.success ? "✅ " : "❌ "}
+            {webhookResult.success ? (
+              <CheckCircle2 className="h-3.5 w-3.5 inline mr-1 text-emerald-400" />
+            ) : (
+              <XCircle className="h-3.5 w-3.5 inline mr-1 text-rose-400" />
+            )}
             {webhookResult.message}
           </div>
         )}

@@ -587,18 +587,29 @@ async def verify_query(
     # 4. Zero-PII Telemetry Logging (Prompts & sensitive texts are excluded)
     audit_id = f"aud_{hashlib.sha256(f'{payload.query}_{time.time()}'.encode()).hexdigest()[:8]}"
     last_moe = getattr(llm_router, "last_telemetry", None)
+    resolved_circuit_state = (
+        "OPEN"
+        if report.model_used == "provider_exhausted"
+        else (last_moe.circuit_state if last_moe else "CLOSED")
+    )
+    temporal_status = (
+        "N/A"
+        if len(report.claim_audits) == 0
+        else ("EXPIRED_FLAGGED" if any(c.source_expired for c in report.claim_audits) else "VALID")
+    )
+
     telemetry = GatewayTelemetry(
         primary_model=report.model_used,
         auditor_model=report.auditor_model_used,
         moe_route=last_moe.moe_route.value if last_moe else "deterministic_veto",
-        circuit_state=last_moe.circuit_state if last_moe else "CLOSED",
+        circuit_state=resolved_circuit_state,
         failover_triggered=getattr(llm_router, "last_failover_occurred", False),
         latency_ms=elapsed_ms,
         prompt_tokens=report.tokens_in,
         completion_tokens=report.tokens_out,
         estimated_cost_usd=report.estimated_cost_usd,
         numeric_concord_pct=report.numeric_concord_pct,
-        temporal_bound="VALID" if not any(c.source_expired for c in report.claim_audits) else "EXPIRED_FLAGGED",
+        temporal_bound=temporal_status,
     )
 
     # 5. Persist audit log with tamper-evident SHA-256 chain linkage
@@ -838,18 +849,28 @@ async def verify_batch(
                 elapsed_ms = int((time.perf_counter() - item_start) * 1000)
                 audit_id = f"aud_{hashlib.sha256(f'{item.query}_{time.time()}_{idx}'.encode()).hexdigest()[:8]}"
                 last_moe = getattr(llm_router, "last_telemetry", None)
+                resolved_circuit_state = (
+                    "OPEN"
+                    if report.model_used == "provider_exhausted"
+                    else (last_moe.circuit_state if last_moe else "CLOSED")
+                )
+                temporal_status = (
+                    "N/A"
+                    if len(report.claim_audits) == 0
+                    else ("EXPIRED_FLAGGED" if any(c.source_expired for c in report.claim_audits) else "VALID")
+                )
                 telemetry = GatewayTelemetry(
                     primary_model=report.model_used,
                     auditor_model=report.auditor_model_used,
                     moe_route=last_moe.moe_route.value if last_moe else "deterministic_veto",
-                    circuit_state=last_moe.circuit_state if last_moe else "CLOSED",
+                    circuit_state=resolved_circuit_state,
                     failover_triggered=getattr(llm_router, "last_failover_occurred", False),
                     latency_ms=elapsed_ms,
                     prompt_tokens=report.tokens_in,
                     completion_tokens=report.tokens_out,
                     estimated_cost_usd=report.estimated_cost_usd,
                     numeric_concord_pct=report.numeric_concord_pct,
-                    temporal_bound="VALID" if not any(c.source_expired for c in report.claim_audits) else "EXPIRED_FLAGGED",
+                    temporal_bound=temporal_status,
                 )
                 created_at = datetime.now(timezone.utc)
                 verify_res = VerifyApiResponse(

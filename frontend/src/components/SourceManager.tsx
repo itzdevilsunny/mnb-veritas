@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2, Database, Download, FileText, Plus, Sparkles, UploadCloud } from "lucide-react";
 import type { AuthorityTier, ManagedSource } from "@/types/veritas";
 
 interface SourceManagerProps {
@@ -281,7 +282,9 @@ export default function SourceManager({
             onChange={(e) => handleFileSelect(e.target.files?.[0])}
             className="hidden"
           />
-          <div className="mb-2 text-2xl">☁️</div>
+          <div className="mb-2 flex justify-center text-zinc-400">
+            <UploadCloud className="h-8 w-8 text-emerald-400" />
+          </div>
           <div className="text-xs font-medium text-zinc-200">
             {selectedFile ? (
               <span className="text-emerald-400 font-mono font-bold">
@@ -391,8 +394,9 @@ export default function SourceManager({
         </div>
 
         {uploadSuccess && (
-          <div className="rounded-lg border border-emerald-800/80 bg-emerald-950/40 p-2.5 font-mono text-xs text-emerald-300">
-            ✓ {uploadSuccess}
+          <div className="rounded-lg border border-emerald-800/80 bg-emerald-950/40 p-2.5 font-mono text-xs text-emerald-300 flex items-center gap-1.5">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+            <span>{uploadSuccess}</span>
           </div>
         )}
       </form>
@@ -477,10 +481,11 @@ export default function SourceManager({
             type="button"
             onClick={handleLoadPresets}
             disabled={loadingPresets}
-            className="rounded border border-sky-800/60 bg-sky-950/40 px-2.5 py-1 font-mono text-[11px] text-sky-400 hover:bg-sky-900/50 transition disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded border border-sky-800/60 bg-sky-950/40 px-2.5 py-1 font-mono text-[11px] text-sky-400 hover:bg-sky-900/50 transition disabled:opacity-50"
             title="Ingests official RBI & SEBI gazette circulars into active corpus"
           >
-            {loadingPresets ? "Loading Gazette..." : "⚡ Ingest Official Gazette Presets"}
+            <Sparkles className="h-3 w-3 text-sky-400" />
+            <span>{loadingPresets ? "Loading Gazette..." : "Ingest Official Gazette Presets"}</span>
           </button>
         </div>
 

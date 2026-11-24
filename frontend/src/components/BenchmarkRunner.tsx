@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { Activity, CheckCircle2, Play, Target, XCircle } from "lucide-react";
 
 interface BenchmarkCaseResult {
   case_id: string;
@@ -140,7 +141,7 @@ export default function BenchmarkRunner() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-500/20 text-emerald-400 font-mono text-xs">
-              🧪
+              <Activity className="h-3 w-3" />
             </span>
             <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-200">
               Institutional Forensic Benchmark Lab
@@ -171,9 +172,9 @@ export default function BenchmarkRunner() {
               type="button"
               onClick={runBenchmark}
               disabled={running}
-              className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-50"
             >
-              <span>⚡</span>
+              <Play className="h-3.5 w-3.5 fill-current" />
               <span>{running ? "RUNNING BATTERY..." : `RUN BENCHMARK (${5 + customCases.length})`}</span>
             </button>
           </div>
@@ -294,9 +295,10 @@ export default function BenchmarkRunner() {
                   <button
                     type="button"
                     onClick={() => handleRemoveCustomCase(c.case_id)}
-                    className="text-rose-400 hover:text-rose-300 text-xs px-2 py-0.5"
+                    className="inline-flex items-center gap-1 text-rose-400 hover:text-rose-300 text-xs px-2 py-0.5"
                   >
-                    ✕ Remove
+                    <XCircle className="h-3 w-3" />
+                    <span>Remove</span>
                   </button>
                 </div>
               ))}
@@ -471,7 +473,9 @@ export default function BenchmarkRunner() {
       {/* Empty State Prompt */}
       {!report && !running && (
         <div className="rounded-xl border border-dashed border-zinc-800 bg-[#0B0F12] p-10 text-center space-y-3">
-          <div className="text-3xl">🎯</div>
+          <div className="flex justify-center text-zinc-400">
+            <Target className="h-8 w-8 text-emerald-400" />
+          </div>
           <h4 className="font-mono text-xs font-semibold uppercase text-zinc-300">
             Ready for Automated Evaluation
           </h4>
