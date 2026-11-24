@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -32,6 +32,8 @@ from app.models.schemas import (
     AppKeyOut,
     AuditLogListItem,
     GatewayTelemetry,
+    HumanReviewRequest,
+    HumanReviewResponse,
     Lab,
     SourceCreateRequest,
     SourceExpiryUpdateRequest,
@@ -492,6 +494,13 @@ async def verify_query(
 ) -> VerifyApiResponse:
     start_time = time.perf_counter()
 
+    # Enforce Layer 1 Auth Scoped Policy Profiles
+    if payload.policy.value not in client.allowed_policies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key '{client.key_prefix}' is restricted to policy profiles: {client.allowed_policies}. Policy '{payload.policy.value}' is not permitted.",
+        )
+
     # 1. Fetch active truth sources from database
     stmt = select(VeritasSource).where(VeritasSource.is_active.is_(True))
     if payload.source_ids:
@@ -610,6 +619,12 @@ async def verify_query_stream(
     Streams Server-Sent Events (SSE) detailing each pipeline stage in real-time,
     ending with the full verification report and persisting telemetry to the audit log.
     """
+    # Enforce Layer 1 Auth Scoped Policy Profiles
+    if payload.policy.value not in client.allowed_policies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key '{client.key_prefix}' is restricted to policy profiles: {client.allowed_policies}. Policy '{payload.policy.value}' is not permitted.",
+        )
     db_sources = (await db.execute(select(VeritasSource).where(VeritasSource.is_active == True))).scalars().all()
     merged_sources: dict[str, SourceDoc] = {}
     for s in db_sources:
@@ -734,6 +749,49 @@ async def list_audits(
     ]
 
 
+@router.post("/audits/{audit_id}/review", response_model=HumanReviewResponse)
+async def review_escalated_audit(
+    audit_id: str,
+    payload: HumanReviewRequest,
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> HumanReviewResponse:
+    """Human-in-the-loop compliance review sign-off for ESCALATE audits."""
+    audit = (
+        await db.execute(select(VeritasAuditLog).where(VeritasAuditLog.audit_id == audit_id))
+    ).scalar_one_or_none()
+    if not audit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Audit {audit_id} not found")
+
+    decision = payload.decision.upper().strip()
+    if decision not in ["APPROVE", "REJECT"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Decision must be 'APPROVE' or 'REJECT'"
+        )
+
+    prev_verdict = audit.verdict
+    now = datetime.now(timezone.utc)
+    new_verdict = "APPROVE" if decision == "APPROVE" else "ABSTAIN"
+    audit.verdict = new_verdict
+    audit.warnings = (audit.warnings or []) + [
+        f"Human Compliance Sign-Off ({decision}) by {payload.reviewer} at {now.isoformat()}: {payload.notes}"
+    ]
+    if decision == "REJECT":
+        audit.answer = "No answer possible (Rejected by compliance officer during human escalation review)"
+
+    await db.commit()
+    await db.refresh(audit)
+    return HumanReviewResponse(
+        audit_id=audit.audit_id,
+        previous_verdict=prev_verdict,
+        new_verdict=new_verdict,
+        reviewer=payload.reviewer,
+        reviewed_at=now,
+        notes=payload.notes,
+        is_safe_to_publish=(new_verdict == "APPROVE"),
+    )
+
+
 # =====================================================================
 # PER-APP API KEY MANAGEMENT ENDPOINTS
 # =====================================================================
@@ -749,11 +807,13 @@ async def create_app_key(
         app_name=payload.app_name, rate_limit=payload.rate_limit_per_minute
     )
 
+    policies = [p.value for p in payload.allowed_policies] if payload.allowed_policies else ["standard", "balanced", "strict"]
     record = VeritasAppKey(
         app_name=payload.app_name.strip(),
         key_prefix=key_prefix,
         sha256_hash=sha256_hash,
         rate_limit_per_minute=payload.rate_limit_per_minute,
+        allowed_policies=policies,
         is_active=True,
     )
     db.add(record)
@@ -765,6 +825,7 @@ async def create_app_key(
         app_name=record.app_name,
         key_prefix=record.key_prefix,
         rate_limit_per_minute=record.rate_limit_per_minute,
+        allowed_policies=record.allowed_policies,
         is_active=record.is_active,
         created_at=record.created_at,
         last_used_at=record.last_used_at,

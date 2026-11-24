@@ -42,6 +42,12 @@ export default function VeritasApp() {
 
   useEffect(() => {
     fetchProviderHealth();
+    // Real-Time Live Heartbeat: polls provider circuit status and syncs audits every 4 seconds
+    const interval = setInterval(() => {
+      fetchProviderHealth();
+      setAuditSyncKey((prev) => prev + 1);
+    }, 4000);
+    return () => clearInterval(interval);
   }, [fetchProviderHealth]);
 
   const handleResetCircuit = async (lab: string) => {
@@ -99,6 +105,13 @@ export default function VeritasApp() {
               </span>
               <span className="rounded bg-emerald-950 px-1.5 py-0.2 font-mono text-[10px] font-semibold text-emerald-400 border border-emerald-800/60">
                 v1.4
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] font-semibold">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                LIVE
               </span>
             </div>
             <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">

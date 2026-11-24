@@ -87,6 +87,9 @@ class VeritasAppKey(Base):
     key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     sha256_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     rate_limit_per_minute: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    allowed_policies: Mapped[list[str]] = mapped_column(
+        JSON, default=lambda: ["standard", "balanced", "strict"], nullable=False
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

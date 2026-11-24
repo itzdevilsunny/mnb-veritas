@@ -51,6 +51,7 @@ class ExtractedClaim(BaseModel):
     claim_id: str
     claim_text: str
     is_factual: bool = True
+    is_critical: bool = False
     verbatim_quote: str | None = Field(
         default=None,
         description="Exact substring copied from the source text if supported.",
@@ -67,6 +68,7 @@ class ClaimAuditResult(BaseModel):
     claim_id: str
     claim_text: str
     is_factual: bool = True
+    is_critical: bool = False
     quote_verified: bool = False
     source_expired: bool = False
     numeric_mismatch: bool = False
@@ -178,6 +180,9 @@ class AuditLogListItem(BaseModel):
 class AppKeyCreateRequest(BaseModel):
     app_name: str = Field(..., min_length=2, max_length=64)
     rate_limit_per_minute: int = Field(default=60, ge=1, le=10000)
+    allowed_policies: list[PolicyMode] = Field(
+        default_factory=lambda: [PolicyMode.STANDARD, PolicyMode.BALANCED, PolicyMode.STRICT]
+    )
 
 
 class AppKeyOut(BaseModel):
@@ -185,6 +190,7 @@ class AppKeyOut(BaseModel):
     app_name: str
     key_prefix: str
     rate_limit_per_minute: int
+    allowed_policies: list[str] = Field(default_factory=lambda: ["standard", "balanced", "strict"])
     is_active: bool
     created_at: datetime
     last_used_at: datetime | None = None
@@ -192,3 +198,21 @@ class AppKeyOut(BaseModel):
 
 class AppKeyCreatedResponse(AppKeyOut):
     raw_key: str
+
+
+# --- Human Escalation Review Schemas ---
+
+class HumanReviewRequest(BaseModel):
+    decision: str = Field(..., description="'APPROVE' or 'REJECT'")
+    reviewer: str = Field(..., min_length=2)
+    notes: str = Field(default="", max_length=1000)
+
+
+class HumanReviewResponse(BaseModel):
+    audit_id: str
+    previous_verdict: str
+    new_verdict: str
+    reviewer: str
+    reviewed_at: datetime
+    notes: str
+    is_safe_to_publish: bool

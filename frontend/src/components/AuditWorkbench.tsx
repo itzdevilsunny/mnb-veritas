@@ -34,6 +34,45 @@ export default function AuditWorkbench({
   const [result, setResult] = useState<VerifyResponse | null>(null);
   const [inspectedClaim, setInspectedClaim] = useState<string | null>(null);
   const [sourcesMap, setSourcesMap] = useState<Record<string, { doc_id: string; title: string; text: string; valid_from: string; valid_until: string | null }>>({});
+  const [reviewerName, setReviewerName] = useState("Compliance Officer - Lead Regulatory");
+  const [reviewNotes, setReviewNotes] = useState("Verified against statutory regulatory circular.");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+
+  const handleHumanReview = async (decision: "APPROVE" | "REJECT") => {
+    if (!result?.audit_id) return;
+    setReviewSubmitting(true);
+    try {
+      const res = await fetch(`/api/audits/${result.audit_id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision,
+          reviewer: reviewerName.trim() || "Compliance Officer",
+          notes: reviewNotes.trim() || "Manual compliance review decision",
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResult((prev) =>
+          prev
+            ? {
+                ...prev,
+                verdict: data.new_verdict,
+                warnings: [...(prev.warnings || []), `Human Review (${decision}) by ${data.reviewer}: ${data.notes}`],
+                answer:
+                  data.new_verdict === "APPROVE"
+                    ? prev.answer.replace(/\[ESCALATED FOR HUMAN REVIEW:.*?\]/g, "").trim()
+                    : "No answer possible (Rejected by compliance officer during human escalation review)",
+              }
+            : null
+        );
+      }
+    } catch (e) {
+      console.error("Failed to submit human review", e);
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   // Load latest real audit from database and active truth sources on mount
   useEffect(() => {
@@ -260,10 +299,10 @@ export default function AuditWorkbench({
           >
             <div className="flex items-center gap-2 text-xs font-semibold text-zinc-100">
               <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-              <span>FY 2025-26 Allocation</span>
+              <span>1. FY 2025-26 Outlay (APPROVE)</span>
             </div>
             <span className="mt-1 font-mono text-[11px] text-zinc-400">
-              ₹4,850 Cr Green Hydrogen outlay
+              ₹4,850 Cr Green Hydrogen pilot outlay
             </span>
           </button>
 
@@ -281,10 +320,52 @@ export default function AuditWorkbench({
           >
             <div className="flex items-center gap-2 text-xs font-semibold text-zinc-100">
               <span className="h-2 w-2 rounded-full bg-rose-400"></span>
-              <span>Offshore LNG Claim</span>
+              <span>2. Ungrounded LNG Claim (ABSTAIN)</span>
             </div>
             <span className="mt-1 font-mono text-[11px] text-zinc-400">
-              Triggers &quot;No answer possible&quot;
+              Zero evidence in approved gazette
+            </span>
+          </button>
+
+          {/* Preset 3: 100x Scale Distortion */}
+          <button
+            type="button"
+            onClick={() =>
+              loadPreset(
+                "Is the total capital expenditure outlay ₹11,11,111 lakh for FY 2025-26 under the Union Budget?",
+                "2025-03-31",
+                "strict"
+              )
+            }
+            className="flex flex-col items-start rounded-lg border border-zinc-800/80 bg-[#121820]/70 p-3 text-left transition hover:border-amber-600/60 hover:bg-[#151D26]"
+          >
+            <div className="flex items-center gap-2 text-xs font-semibold text-zinc-100">
+              <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+              <span>3. 100x Scale Distortion (ABSTAIN)</span>
+            </div>
+            <span className="mt-1 font-mono text-[11px] text-zinc-400">
+              Lakh vs Crore scale discrepancy
+            </span>
+          </button>
+
+          {/* Preset 4: Critical Regulatory Mandate (Strict Escalation) */}
+          <button
+            type="button"
+            onClick={() =>
+              loadPreset(
+                "What is the statutory liquid cushion requirement for Category I and II Alternative Investment Funds under emergency drawdown rules?",
+                "2025-01-15",
+                "strict"
+              )
+            }
+            className="flex flex-col items-start rounded-lg border border-zinc-800/80 bg-[#121820]/70 p-3 text-left transition hover:border-purple-600/60 hover:bg-[#151D26]"
+          >
+            <div className="flex items-center gap-2 text-xs font-semibold text-zinc-100">
+              <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse"></span>
+              <span>4. Critical Statutory Mandate (ESCALATE)</span>
+            </div>
+            <span className="mt-1 font-mono text-[11px] text-zinc-400">
+              Mandatory human compliance sign-off
             </span>
           </button>
         </div>
@@ -403,6 +484,34 @@ export default function AuditWorkbench({
               <span className="text-zinc-400 text-[11px]">{streamStage.progress}%</span>
             </div>
 
+            {/* 5-Stage Live Visual Pipeline Grid */}
+            <div className="grid grid-cols-5 gap-1.5 pt-1">
+              {[
+                { s: 1, label: "01. EXTRACT" },
+                { s: 2, label: "02. RETRIEVE" },
+                { s: 3, label: "03. EXAMINE" },
+                { s: 4, label: "04. DECIDE" },
+                { s: 5, label: "05. REPORT" },
+              ].map(({ s, label }) => {
+                const isCurrent = streamStage.stage === s;
+                const isDone = streamStage.stage > s;
+                return (
+                  <div
+                    key={s}
+                    className={`rounded border px-1.5 py-1 text-center text-[10px] font-mono transition-all ${
+                      isCurrent
+                        ? "border-emerald-400 bg-emerald-500/20 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)] animate-pulse font-bold"
+                        : isDone
+                        ? "border-emerald-700/60 bg-emerald-950/40 text-emerald-400"
+                        : "border-zinc-800 bg-zinc-900/60 text-zinc-600"
+                    }`}
+                  >
+                    {label}
+                  </div>
+                );
+              })}
+            </div>
+
             {/* Stepper Progress Bar */}
             <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
               <div
@@ -437,6 +546,8 @@ export default function AuditWorkbench({
                       ? "bg-emerald-950/80 text-emerald-300 border border-emerald-700/60"
                       : result.verdict === "QUALIFY"
                       ? "bg-amber-950/80 text-amber-300 border border-amber-700/60"
+                      : result.verdict === "ESCALATE"
+                      ? "bg-purple-950/80 text-purple-300 border border-purple-700/60"
                       : "bg-rose-950/80 text-rose-300 border border-rose-700/60"
                   }`}
                 >
@@ -446,6 +557,8 @@ export default function AuditWorkbench({
                         ? "bg-emerald-400"
                         : result.verdict === "QUALIFY"
                         ? "bg-amber-400"
+                        : result.verdict === "ESCALATE"
+                        ? "bg-purple-400 animate-pulse"
                         : "bg-rose-400"
                     }`}
                   ></span>
@@ -453,9 +566,11 @@ export default function AuditWorkbench({
                 </span>
                 <span className="text-xs text-zinc-300">
                   {result.verdict === "APPROVE"
-                    ? `Synthesis fully grounded across 2 primary state sources. ${result.claim_audits.length} of ${result.claim_audits.length} claims passed exact substring quote verification & numeric crore reconciliations.`
+                    ? `Synthesis fully grounded across approved truth sources. All ${result.claim_audits.length} factual claims passed exact substring quote verification & numeric crore reconciliations.`
                     : result.verdict === "QUALIFY"
                     ? "Qualified synthesis: Verified with temporal/source caveats."
+                    : result.verdict === "ESCALATE"
+                    ? "Critical regulatory claim flagged: Requires designated compliance officer sign-off before publication."
                     : 'Strict abstention triggered: Claim is ungrounded or contradictory. Answer reverted to "No answer possible".'}
                 </span>
               </div>
@@ -473,12 +588,68 @@ export default function AuditWorkbench({
                 className={
                   result.answer === "No answer possible"
                     ? "font-mono font-bold text-rose-300"
+                    : result.verdict === "ESCALATE"
+                    ? "text-purple-200"
                     : "text-zinc-200"
                 }
               >
                 {result.answer}
               </p>
             </div>
+
+            {/* Human Review Escalation Card */}
+            {result.verdict === "ESCALATE" && (
+              <div className="rounded-lg border border-purple-800/80 bg-purple-950/30 p-4 space-y-3 font-mono">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold text-purple-300 uppercase">
+                    <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse"></span>
+                    <span>Human Review Escalation Queue (Compliance Officer Gate)</span>
+                  </div>
+                  <span className="text-[10px] text-purple-400/80 border border-purple-800/60 bg-purple-900/40 px-2 py-0.5 rounded">
+                    MANDATORY SIGN-OFF
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-300 font-sans">
+                  The Hard-Coded Policy Engine flagged this critical regulatory claim. Publication is blocked until a designated compliance officer reviews and signs off.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  <input
+                    type="text"
+                    value={reviewerName}
+                    onChange={(e) => setReviewerName(e.target.value)}
+                    placeholder="Officer Name / Role"
+                    className="rounded-md border border-zinc-800 bg-[#0B0F12] px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-purple-500 focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={reviewNotes}
+                    onChange={(e) => setReviewNotes(e.target.value)}
+                    placeholder="Audit Notes"
+                    className="rounded-md border border-zinc-800 bg-[#0B0F12] px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-purple-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleHumanReview("APPROVE")}
+                    disabled={reviewSubmitting}
+                    className="flex-1 rounded-md bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/50 py-2 text-xs font-semibold text-emerald-300 transition"
+                  >
+                    {reviewSubmitting ? "Submitting Sign-off..." : "✓ Sign-Off & Approve for Publication"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHumanReview("REJECT")}
+                    disabled={reviewSubmitting}
+                    className="flex-1 rounded-md bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/50 py-2 text-xs font-semibold text-rose-300 transition"
+                  >
+                    {reviewSubmitting ? "Submitting Rejection..." : "✕ Reject Claim (Abstain)"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Metrics 2x3 Grid */}
             <div className="grid grid-cols-1 gap-2 md:grid-cols-3 font-mono text-[11px]">

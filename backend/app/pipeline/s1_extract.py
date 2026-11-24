@@ -29,8 +29,9 @@ async def extract_claims(
         "from the source text into `verbatim_quote`, and specify `cited_doc_id`. "
         "If a claim is not backed by the sources, set `verbatim_quote` to null. "
         "Respond STRICTLY in JSON format matching: {\"draft_answer\": str, \"claims\": ["
-        "{\"claim_id\": str, \"claim_text\": str, \"is_factual\": bool, "
+        "{\"claim_id\": str, \"claim_text\": str, \"is_factual\": bool, \"is_critical\": bool, "
         "\"verbatim_quote\": str|null, \"cited_doc_id\": str|null}]}."
+        "If a claim involves statutory capital thresholds, sovereign guarantees, or critical regulatory mandates, set is_critical to true."
     )
     user_prompt = f"Question: {query}\n\nApproved Sources:\n{context_block or 'NONE'}"
     raw, provider, failover = await router.call_with_failover(

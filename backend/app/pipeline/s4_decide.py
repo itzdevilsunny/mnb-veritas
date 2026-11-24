@@ -50,4 +50,15 @@ def evaluate_policy_verdict(
             warnings,
         )
 
+    # Invariant: Critical claims in STRICT mode escalate for mandatory compliance sign-off
+    if policy == PolicyMode.STRICT:
+        critical_audits = [a for a in factual_audits if getattr(a, "is_critical", False)]
+        if critical_audits:
+            crit_reasons = ["Critical regulatory claim requires compliance officer sign-off before publication."]
+            return (
+                Verdict.ESCALATE,
+                f"{bundle.draft_answer}\n\n[ESCALATED FOR HUMAN REVIEW: Compliance officer sign-off required.]",
+                crit_reasons,
+            )
+
     return Verdict.APPROVE, bundle.draft_answer, warnings

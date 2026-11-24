@@ -125,6 +125,7 @@ class MockProvider(LLMProvider):
 
         # Require meaningful semantic content overlap
         if best_sentence and best_doc_id and best_score >= 2.0:
+            is_crit = any(k in question_text for k in ["critical", "statutory", "escalat", "emergency"])
             return json.dumps({
                 "draft_answer": best_sentence,
                 "claims": [
@@ -132,6 +133,7 @@ class MockProvider(LLMProvider):
                         "claim_id": "CLM-01",
                         "claim_text": best_sentence,
                         "is_factual": True,
+                        "is_critical": is_crit,
                         "verbatim_quote": best_sentence,
                         "cited_doc_id": best_doc_id,
                     }

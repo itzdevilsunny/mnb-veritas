@@ -243,6 +243,11 @@ async def lifespan(app: FastAPI):
             if "embedding" not in cols and "doc_id" in cols:
                 await conn.execute(text("ALTER TABLE veritas_sources ADD COLUMN embedding JSON;"))
 
+            res_keys = await conn.execute(text("PRAGMA table_info(veritas_app_keys);"))
+            cols_keys = [row[1] for row in res_keys.fetchall()]
+            if "allowed_policies" not in cols_keys and "id" in cols_keys:
+                await conn.execute(text("ALTER TABLE veritas_app_keys ADD COLUMN allowed_policies JSON DEFAULT '[\"standard\",\"balanced\",\"strict\"]';"))
+
     logger.info("Database schema validated.")
     await seed_initial_truth_corpuses_and_audits()
     # Initialize pooled HTTP client for zero-stall LLM gateway communication

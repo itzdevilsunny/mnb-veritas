@@ -6,7 +6,7 @@ import hmac
 import logging
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from fastapi import Depends, Header, HTTPException, status
@@ -46,6 +46,7 @@ class AuthenticatedClient:
     key_hash: str
     rate_limit_per_minute: int
     is_admin: bool = False
+    allowed_policies: list[str] = field(default_factory=lambda: ["standard", "balanced", "strict"])
 
 
 class RedisRateLimiter:
@@ -189,6 +190,7 @@ async def verify_authenticated_client(
                 key_hash=app_record.sha256_hash,
                 rate_limit_per_minute=app_record.rate_limit_per_minute,
                 is_admin=False,
+                allowed_policies=app_record.allowed_policies or ["standard", "balanced", "strict"],
             )
 
     if client is None:
