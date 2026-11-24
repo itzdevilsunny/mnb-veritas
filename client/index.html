@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MNB Veritas — Python SDK &amp; CLI Reference</title>
+  <meta name="description" content="Official Python Client SDK and CLI documentation for MNB Veritas evidence-gated verification middleware.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+  <style>
+    :root {
+      --bg: #09090b;
+      --card-bg: #111114;
+      --border: #27272a;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #10b981;
+      --accent-bg: rgba(16, 185, 129, 0.1);
+      --code-bg: #050507;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .logo-icon {
+      width: 2rem;
+      height: 2rem;
+      background: #18181b;
+      border: 1px solid var(--border);
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+    }
+    .title {
+      font-size: 1.1rem;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .status-badge {
+      background: var(--accent-bg);
+      color: var(--accent);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-title {
+      font-size: 0.85rem;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #e4e4e7;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: #d4d4d8;
+      line-height: 1.5;
+    }
+    code {
+      font-family: var(--font-mono);
+    }
+    .invariants {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .invariant-item {
+      background: #09090b;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: #d4d4d8;
+    }
+    .invariant-item strong {
+      color: var(--accent);
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+    .links {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent-bg);
+      color: var(--accent);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+    .btn-primary:hover {
+      background: rgba(16, 185, 129, 0.2);
+    }
+    .btn-secondary {
+      background: #18181b;
+      color: #d4d4d8;
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: #27272a;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding-top: 1.5rem;
+      margin-top: 2rem;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: #71717a;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo-badge">
+        <div class="logo-icon">V</div>
+        <div>
+          <div class="title">MNB VERITAS <span style="color: #71717a; font-weight: 400;">v1.4.0</span></div>
+          <div class="subtitle">Python Client SDK &amp; CLI Reference</div>
+        </div>
+      </div>
+      <div class="status-badge">
+        <span class="status-dot"></span>
+        SDK DEPLOYMENT ACTIVE
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="card-title">Installation</div>
+      <p>Install the official MNB Veritas client SDK into your Python 3.10+ virtual environment:</p>
+      <pre><code>pip install git+https://github.com/itzdevilsunny/mnb-veritas.git#subdirectory=client</code></pre>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Command-Line Interface (CLI)</div>
+      <p>Execute live deterministic verification from terminal or CI/CD pipelines:</p>
+      <pre><code># Verify a claim with strict evidence gating
+veritas verify "What is the capital outlay for National Green Hydrogen Mission for FY 2025-26?" --policy strict
+
+# Verify and export a cryptographically signed compliance certificate
+veritas verify "What is the policy repo rate for Q4 FY25?" --export-cert audit.pdf
+
+# Check gateway circuits and provider availability
+veritas health
+
+# Verify SHA-256 tamper-evident audit ledger
+veritas chain --json</code></pre>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Python SDK Quickstart</div>
+      <p>Programmatic integration using the async or sync client:</p>
+      <pre><code>from veritas import VeritasClient, PolicyMode
+
+async def main():
+    async with VeritasClient(base_url="https://mnb-veritas.vercel.app") as client:
+        result = await client.verify(
+            query="What is the approved budgetary allocation for FY 2025-26?",
+            policy=PolicyMode.STRICT,
+        )
+        print(f"Verdict: {result.verdict}")
+        print(f"Answer:  {result.answer}")
+        print(f"Audit:   {result.audit_id}")</code></pre>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Core Verification Invariants</div>
+      <div class="invariants">
+        <div class="invariant-item">
+          <strong>1. Verbatim Quote Match</strong>
+          Character-for-character substring verification against approved truth sources.
+        </div>
+        <div class="invariant-item">
+          <strong>2. Lakh / Crore Scale Concord</strong>
+          Detects and vetos 100x Indian &amp; international magnitude distortions.
+        </div>
+        <div class="invariant-item">
+          <strong>3. Fiscal Year Boundary</strong>
+          Strict normalization across FY 2025-26, FY26, and calendar periods.
+        </div>
+        <div class="invariant-item">
+          <strong>4. Cross-Lab Independence</strong>
+          Primary generator lab can never audit its own synthesis.
+        </div>
+      </div>
+    </div>
+
+    <div class="links">
+      <a href="https://mnb-veritas.vercel.app" class="btn btn-primary" target="_blank" rel="noreferrer">Open Veritas Web Workbench</a>
+      <a href="https://github.com/itzdevilsunny/mnb-veritas" class="btn btn-secondary" target="_blank" rel="noreferrer">GitHub Repository</a>
+    </div>
+
+    <footer>
+      MNB Veritas &bull; Evidence-Gated Zero-Mock AI Verification Middleware &bull; Apache-2.0
+    </footer>
+  </div>
+</body>
+</html>

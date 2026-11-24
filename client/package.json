@@ -1,0 +1,8 @@
+{
+  "name": "mnb-veritas-client",
+  "version": "1.4.0",
+  "description": "MNB Veritas Official Python Client SDK and CLI documentation",
+  "scripts": {
+    "build": "echo 'MNB Veritas Python SDK Client deployment ready'"
+  }
+}

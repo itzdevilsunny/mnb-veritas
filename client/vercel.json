@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "buildCommand": "echo 'MNB Veritas Python Client SDK & CLI documentation ready'",
+  "outputDirectory": "."
+}
