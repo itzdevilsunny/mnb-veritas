@@ -30,6 +30,13 @@ async def reset_circuit_breakers_and_sync_db():
             if "allowed_policies" not in cols_keys and "id" in cols_keys:
                 await conn.execute(text("ALTER TABLE veritas_app_keys ADD COLUMN allowed_policies JSON DEFAULT '[\"standard\",\"balanced\",\"strict\"]';"))
 
+            res_audits = await conn.execute(text("PRAGMA table_info(veritas_audit_logs);"))
+            cols_audits = [row[1] for row in res_audits.fetchall()]
+            if "prev_hash" not in cols_audits and "audit_id" in cols_audits:
+                await conn.execute(text("ALTER TABLE veritas_audit_logs ADD COLUMN prev_hash VARCHAR(64);"))
+            if "record_hash" not in cols_audits and "audit_id" in cols_audits:
+                await conn.execute(text("ALTER TABLE veritas_audit_logs ADD COLUMN record_hash VARCHAR(64);"))
+
     cb = get_circuit_breaker()
     for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]:
         await cb.reset(lab)

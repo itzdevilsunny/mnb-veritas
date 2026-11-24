@@ -115,6 +115,8 @@ class VeritasAuditLog(Base):
     estimated_cost_usd: Mapped[float | None] = mapped_column(Float, default=0.0035, nullable=True)
     claim_audits: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    record_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True, nullable=False
     )

@@ -110,9 +110,61 @@ export interface AuditRow {
   claim_audits: ClaimAudit[];
   warnings: string[];
   created_at: string;
+  prev_hash?: string | null;
+  record_hash?: string | null;
 }
 
 export type AuditLogItem = AuditRow;
+
+export interface AuditChainStatus {
+  valid: boolean;
+  checked_count: number;
+  latest_record_hash: string | null;
+  first_broken_audit_id: string | null;
+  details: string;
+}
+
+export interface BatchVerifyItemRequest {
+  item_id?: string;
+  query: string;
+  policy?: PolicyMode;
+  preferred_labs?: LabProvider[];
+  reference_date?: string;
+  source_ids?: string[];
+}
+
+export interface BatchVerifyRequest {
+  items: BatchVerifyItemRequest[];
+  policy?: PolicyMode;
+  preferred_labs?: LabProvider[];
+  reference_date?: string;
+  source_ids?: string[];
+  concurrency_limit?: number;
+}
+
+export interface BatchVerifyItemResult {
+  index: number;
+  item_id?: string | null;
+  success: boolean;
+  result?: VerifyResponse | null;
+  error?: string | null;
+}
+
+export interface BatchVerifySummary {
+  total_items: number;
+  approved_count: number;
+  abstained_count: number;
+  qualified_count: number;
+  escalated_count: number;
+  error_count: number;
+  total_latency_ms: number;
+  total_cost_usd: number;
+}
+
+export interface BatchVerifyResponse {
+  summary: BatchVerifySummary;
+  results: BatchVerifyItemResult[];
+}
 
 export interface PdfUploadResult {
   base_doc_id: string;

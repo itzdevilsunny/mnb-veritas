@@ -191,6 +191,60 @@ class AuditLogListItem(BaseModel):
     claim_audits: list[dict[str, Any]]
     warnings: list[str]
     created_at: datetime
+    prev_hash: str | None = None
+    record_hash: str | None = None
+
+
+class AuditChainVerificationResponse(BaseModel):
+    valid: bool
+    checked_count: int
+    latest_record_hash: str | None = None
+    first_broken_audit_id: str | None = None
+    details: str
+
+
+# --- Batch Verification Schemas ---
+
+class BatchVerifyItemRequest(BaseModel):
+    item_id: str | None = None
+    query: str = Field(..., min_length=2)
+    policy: PolicyMode | None = None
+    preferred_labs: list[Lab] | None = None
+    reference_date: date | None = None
+    source_ids: list[str] | None = None
+
+
+class BatchVerifyRequest(BaseModel):
+    items: list[BatchVerifyItemRequest] = Field(..., min_length=1, max_length=50)
+    policy: PolicyMode = PolicyMode.STRICT
+    preferred_labs: list[Lab] | None = None
+    reference_date: date | None = None
+    source_ids: list[str] | None = None
+    concurrency_limit: int = Field(default=5, ge=1, le=10)
+
+
+class BatchVerifyItemResult(BaseModel):
+    index: int
+    item_id: str | None = None
+    success: bool
+    result: VerifyApiResponse | None = None
+    error: str | None = None
+
+
+class BatchVerifySummary(BaseModel):
+    total_items: int
+    approved_count: int = 0
+    abstained_count: int = 0
+    qualified_count: int = 0
+    escalated_count: int = 0
+    error_count: int = 0
+    total_latency_ms: int = 0
+    total_cost_usd: float = 0.0
+
+
+class BatchVerifyResponse(BaseModel):
+    summary: BatchVerifySummary
+    results: list[BatchVerifyItemResult]
 
 
 # --- App Key Schemas ---

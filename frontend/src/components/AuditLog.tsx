@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { AuditRow } from "@/types/veritas";
+import type { AuditChainStatus, AuditRow } from "@/types/veritas";
 import { ClaimCard } from "./ClaimCard";
 import { btnGhost, Panel, VerdictBadge } from "./ui";
 
@@ -12,6 +12,8 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [chainStatus, setChainStatus] = useState<AuditChainStatus | null>(null);
+  const [chainLoading, setChainLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,9 +27,22 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
     }
   }, [verdict]);
 
+  const checkChain = useCallback(async () => {
+    setChainLoading(true);
+    try {
+      const res = await api<AuditChainStatus>("/v1/audits/verify-chain");
+      setChainStatus(res);
+    } catch {
+      // Graceful fallback if backend call fails
+    } finally {
+      setChainLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load, refreshKey]);
+    void checkChain();
+  }, [load, checkChain, refreshKey]);
 
   return (
     <Panel className="space-y-4">
@@ -48,11 +63,53 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
               <option key={v}>{v}</option>
             ))}
           </select>
-          <button type="button" onClick={() => void load()} className={btnGhost}>
+          <button type="button" onClick={() => { void load(); void checkChain(); }} className={btnGhost}>
             Refresh
           </button>
         </div>
       </div>
+
+      {chainStatus && (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-mono ${
+            chainStatus.valid
+              ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-300"
+              : "border-rose-500/30 bg-rose-950/20 text-rose-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                chainStatus.valid ? "bg-emerald-400 animate-pulse" : "bg-rose-500"
+              }`}
+            />
+            <span className="font-semibold">
+              {chainStatus.valid ? "SHA-256 AUDIT CHAIN VERIFIED" : "CHAIN TAMPER DETECTED"}
+            </span>
+            <span className="text-zinc-400">
+              ({chainStatus.checked_count} logs linked
+              {chainStatus.latest_record_hash
+                ? ` · Head: ${chainStatus.latest_record_hash.slice(0, 10)}…`
+                : ""}
+              )
+            </span>
+            {!chainStatus.valid && chainStatus.first_broken_audit_id && (
+              <span className="text-rose-400">
+                · Broken at: {chainStatus.first_broken_audit_id}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void checkChain()}
+            disabled={chainLoading}
+            className="rounded border border-zinc-700 bg-zinc-900/80 px-2 py-0.5 text-[11px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {chainLoading ? "Verifying..." : "Re-verify Linkage"}
+          </button>
+        </div>
+      )}
+
       {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
       <div className="overflow-x-auto rounded-xl border border-zinc-800">
         <table className="w-full text-left text-xs">
@@ -99,6 +156,21 @@ export function AuditLog({ refreshKey = 0 }: { refreshKey?: number }) {
                   {isOpen && (
                     <tr className="bg-zinc-950/60">
                       <td colSpan={6} className="space-y-3 p-4">
+                        {(r.prev_hash || r.record_hash) && (
+                          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] pb-1 border-b border-zinc-800/60">
+                            <span className="text-zinc-500 font-semibold tracking-wider uppercase text-[10px]">Audit Chain Proof:</span>
+                            {r.prev_hash && (
+                              <span className="rounded border border-zinc-800 bg-zinc-900/90 px-2 py-0.5 text-zinc-400">
+                                <span className="text-zinc-500">Prev:</span> {r.prev_hash === "GENESIS" ? "GENESIS" : `${r.prev_hash.slice(0, 12)}…`}
+                              </span>
+                            )}
+                            {r.record_hash && (
+                              <span className="rounded border border-emerald-900/50 bg-emerald-950/30 px-2 py-0.5 text-emerald-300">
+                                <span className="text-emerald-500/80">Hash:</span> {r.record_hash.slice(0, 16)}…
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <div className="space-y-1">
                           <p className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider">Full answer</p>
                           <p className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 text-sm text-zinc-100 whitespace-pre-wrap">

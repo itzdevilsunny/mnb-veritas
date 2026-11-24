@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -13,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.benchmark import BenchmarkRunRequest, BenchmarkSuiteReport, execute_forensic_benchmark
 from app.services.alerting import dispatch_compliance_alert, send_test_webhook
+from app.services.audit_chain import prepare_audit_log_entry, verify_audit_chain_integrity
 from app.core.auth_rate_limit import (
     AuthenticatedClient,
     generate_app_key,
@@ -31,11 +34,18 @@ from app.models.schemas import (
     AppKeyCreatedResponse,
     AppKeyCreateRequest,
     AppKeyOut,
+    AuditChainVerificationResponse,
     AuditLogListItem,
+    BatchVerifyItemRequest,
+    BatchVerifyItemResult,
+    BatchVerifyRequest,
+    BatchVerifyResponse,
+    BatchVerifySummary,
     GatewayTelemetry,
     HumanReviewRequest,
     HumanReviewResponse,
     Lab,
+    PolicyMode,
     SourceCreateRequest,
     SourceExpiryUpdateRequest,
     SourceOut,
@@ -44,6 +54,8 @@ from app.models.schemas import (
     VerifyApiResponse,
 )
 from app.pipeline.veritas_engine import SourceDoc, VeritasPipeline
+
+logger = logging.getLogger("veritas.api")
 
 router = APIRouter(prefix="/v1", tags=["veritas"])
 
@@ -587,9 +599,10 @@ async def verify_query(
         temporal_bound="VALID" if not any(c.source_expired for c in report.claim_audits) else "EXPIRED_FLAGGED",
     )
 
-    # 5. Persist audit log
+    # 5. Persist audit log with tamper-evident SHA-256 chain linkage
     claim_dicts = [c.model_dump() for c in report.claim_audits]
-    audit_entry = VeritasAuditLog(
+    audit_entry = await prepare_audit_log_entry(
+        db,
         audit_id=audit_id,
         query_text=payload.query,
         verdict=report.verdict.value,
@@ -602,7 +615,7 @@ async def verify_query(
         estimated_cost_usd=report.estimated_cost_usd,
         claim_audits=claim_dicts,
         warnings=report.warnings,
-        created_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(audit_entry)
     await db.commit()
@@ -717,7 +730,8 @@ async def verify_query_stream(
                 numeric_concord_pct=rep.get("numeric_concord_pct", 100.0),
                 temporal_bound="VALID" if not any(c.get("source_expired") for c in claim_audits_raw) else "EXPIRED_FLAGGED",
             )
-            audit_entry = VeritasAuditLog(
+            audit_entry = await prepare_audit_log_entry(
+                db,
                 audit_id=audit_id,
                 query_text=payload.query,
                 verdict=rep.get("verdict", "ABSTAIN"),
@@ -730,7 +744,7 @@ async def verify_query_stream(
                 estimated_cost_usd=rep.get("estimated_cost_usd", 0.0),
                 claim_audits=claim_audits_raw,
                 warnings=rep.get("warnings", []),
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
             )
             db.add(audit_entry)
             await db.commit()
@@ -748,6 +762,207 @@ async def verify_query_stream(
             yield f"data: {json.dumps({'stage': 5, 'name': 'COMPLETE', 'progress': 100, 'result': result_out}, default=str)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/verify/batch", response_model=BatchVerifyResponse)
+async def verify_batch(
+    payload: BatchVerifyRequest,
+    db: AsyncSession = Depends(get_db_session),
+    llm_router: VeritasRouter = Depends(get_veritas_router),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> BatchVerifyResponse:
+    """
+    Executes bounded concurrent verification over a batch of queries (up to 50 items).
+    Applies per-key rate limiting & policy permissions, collects individual verification
+    reports, preserves unbroken SHA-256 audit chain linkage, and aggregates telemetry.
+    """
+    # 1. Enforce Auth Scoped Policy Profiles across all items
+    requested_policies = {item.policy.value if item.policy else payload.policy.value for item in payload.items}
+    for pol in requested_policies:
+        if pol not in client.allowed_policies:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"API key '{client.key_prefix}' is restricted to policy profiles: {client.allowed_policies}. Policy '{pol}' is not permitted.",
+            )
+
+    # 2. Fetch all active truth sources once for the batch
+    stmt = select(VeritasSource).where(VeritasSource.is_active.is_(True))
+    db_rows = (await db.execute(stmt)).scalars().all()
+    all_sources: dict[str, SourceDoc] = {
+        r.doc_id: SourceDoc(
+            doc_id=r.doc_id,
+            title=r.title,
+            text=r.text,
+            valid_from=r.valid_from,
+            valid_until=r.valid_until,
+            is_primary=r.is_primary,
+            authority_tier=getattr(r, "authority_tier", "regulatory") or "regulatory",
+            metadata=r.metadata_json,
+            embedding=r.embedding,
+        )
+        for r in db_rows
+    }
+
+    # 3. Concurrently verify items with bounded concurrency semaphore
+    sem = asyncio.Semaphore(payload.concurrency_limit)
+
+    async def _process_item(
+        idx: int, item: BatchVerifyItemRequest
+    ) -> tuple[int, BatchVerifyItemRequest, VerifyApiResponse | None, Any | None, str | None]:
+        async with sem:
+            item_start = time.perf_counter()
+            try:
+                item_policy = item.policy or payload.policy
+                item_labs = item.preferred_labs or payload.preferred_labs
+                item_ref_date = item.reference_date or payload.reference_date
+                item_source_ids = item.source_ids or payload.source_ids
+
+                if item_source_ids:
+                    item_sources = [s for doc_id, s in all_sources.items() if doc_id in item_source_ids]
+                else:
+                    item_sources = list(all_sources.values())
+
+                query_emb = await generate_embedding(item.query)
+                pipeline = VeritasPipeline(router=llm_router, sources=item_sources)
+                report = await pipeline.run(
+                    query=item.query,
+                    policy=item_policy,
+                    preferred_labs=item_labs,
+                    ref_date=item_ref_date,
+                    source_ids=item_source_ids,
+                    query_embedding=query_emb,
+                )
+
+                elapsed_ms = int((time.perf_counter() - item_start) * 1000)
+                audit_id = f"aud_{hashlib.sha256(f'{item.query}_{time.time()}_{idx}'.encode()).hexdigest()[:8]}"
+                last_moe = getattr(llm_router, "last_telemetry", None)
+                telemetry = GatewayTelemetry(
+                    primary_model=report.model_used,
+                    auditor_model=report.auditor_model_used,
+                    moe_route=last_moe.moe_route.value if last_moe else "deterministic_veto",
+                    circuit_state=last_moe.circuit_state if last_moe else "CLOSED",
+                    failover_triggered=getattr(llm_router, "last_failover_occurred", False),
+                    latency_ms=elapsed_ms,
+                    prompt_tokens=report.tokens_in,
+                    completion_tokens=report.tokens_out,
+                    estimated_cost_usd=report.estimated_cost_usd,
+                    numeric_concord_pct=report.numeric_concord_pct,
+                    temporal_bound="VALID" if not any(c.source_expired for c in report.claim_audits) else "EXPIRED_FLAGGED",
+                )
+                created_at = datetime.now(timezone.utc)
+                verify_res = VerifyApiResponse(
+                    audit_id=audit_id,
+                    verdict=report.verdict,
+                    answer=report.answer,
+                    policy_applied=item_policy,
+                    telemetry=telemetry,
+                    claim_audits=report.claim_audits,
+                    warnings=report.warnings,
+                    created_at=created_at,
+                )
+                return (idx, item, verify_res, report, None)
+            except Exception as e:
+                logger.exception("Error processing batch item %s: %s", idx, e)
+                return (idx, item, None, None, str(e))
+
+    tasks = [_process_item(i, it) for i, it in enumerate(payload.items)]
+    raw_results = await asyncio.gather(*tasks)
+    sorted_results = sorted(raw_results, key=lambda x: x[0])
+
+    # 4. Sequentially persist audit logs to guarantee unbroken SHA-256 chain
+    results: list[BatchVerifyItemResult] = []
+    approved_count = 0
+    abstained_count = 0
+    qualified_count = 0
+    escalated_count = 0
+    error_count = 0
+    total_latency_ms = 0
+    total_cost_usd = 0.0
+
+    settings = get_settings()
+    batch_base_time = datetime.now(timezone.utc)
+
+    for idx, item, verify_res, report, error_msg in sorted_results:
+        if error_msg or not verify_res or not report:
+            error_count += 1
+            results.append(
+                BatchVerifyItemResult(
+                    index=idx,
+                    item_id=item.item_id,
+                    success=False,
+                    error=error_msg or "Verification processing failed",
+                )
+            )
+            continue
+
+        item_persisted_time = batch_base_time + timedelta(milliseconds=idx * 10)
+        verify_res.created_at = item_persisted_time
+        claim_dicts = [c.model_dump() for c in report.claim_audits]
+        audit_entry = await prepare_audit_log_entry(
+            db,
+            audit_id=verify_res.audit_id,
+            query_text=item.query,
+            verdict=verify_res.verdict.value,
+            answer=verify_res.answer,
+            policy_applied=verify_res.policy_applied.value,
+            primary_model=verify_res.telemetry.primary_model,
+            auditor_model=verify_res.telemetry.auditor_model,
+            failover_triggered=verify_res.telemetry.failover_triggered,
+            latency_ms=verify_res.telemetry.latency_ms,
+            estimated_cost_usd=verify_res.telemetry.estimated_cost_usd,
+            claim_audits=claim_dicts,
+            warnings=verify_res.warnings,
+            created_at=item_persisted_time,
+        )
+        db.add(audit_entry)
+        await db.commit()
+
+        if verify_res.verdict == Verdict.APPROVE:
+            approved_count += 1
+        elif verify_res.verdict == Verdict.ABSTAIN:
+            abstained_count += 1
+        elif verify_res.verdict == Verdict.QUALIFY:
+            qualified_count += 1
+        elif verify_res.verdict == Verdict.ESCALATE:
+            escalated_count += 1
+
+        total_latency_ms += verify_res.telemetry.latency_ms
+        total_cost_usd += verify_res.telemetry.estimated_cost_usd
+
+        results.append(
+            BatchVerifyItemResult(
+                index=idx,
+                item_id=item.item_id,
+                success=True,
+                result=verify_res,
+            )
+        )
+
+        if verify_res.verdict in {Verdict.ABSTAIN, Verdict.QUALIFY} and settings.COMPLIANCE_WEBHOOK_URL:
+            asyncio.create_task(
+                dispatch_compliance_alert(
+                    event_type=f"VERDICT_{verify_res.verdict.value}",
+                    audit_id=verify_res.audit_id,
+                    query_text=item.query,
+                    verdict=verify_res.verdict.value,
+                    policy_applied=verify_res.policy_applied.value,
+                    reasons=verify_res.warnings,
+                    model=verify_res.telemetry.primary_model,
+                )
+            )
+
+    summary = BatchVerifySummary(
+        total_items=len(payload.items),
+        approved_count=approved_count,
+        abstained_count=abstained_count,
+        qualified_count=qualified_count,
+        escalated_count=escalated_count,
+        error_count=error_count,
+        total_latency_ms=total_latency_ms,
+        total_cost_usd=round(total_cost_usd, 6),
+    )
+
+    return BatchVerifyResponse(summary=summary, results=results)
 
 
 # =====================================================================
@@ -780,9 +995,21 @@ async def list_audits(
             claim_audits=r.claim_audits or [],
             warnings=r.warnings or [],
             created_at=r.created_at,
+            prev_hash=r.prev_hash,
+            record_hash=r.record_hash,
         )
         for r in rows
     ]
+
+
+@router.get("/audits/verify-chain", response_model=AuditChainVerificationResponse)
+async def verify_audit_chain_endpoint(
+    db: AsyncSession = Depends(get_db_session),
+    client: AuthenticatedClient = Depends(verify_authenticated_client),
+) -> AuditChainVerificationResponse:
+    """Walks the stored audit logs sequentially, re-verifying SHA-256 chain linkage."""
+    result = await verify_audit_chain_integrity(db)
+    return AuditChainVerificationResponse(**result)
 
 
 @router.post("/audits/{audit_id}/review", response_model=HumanReviewResponse)

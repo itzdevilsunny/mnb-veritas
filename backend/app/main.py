@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory, engine
 from app.gateway.http_pool import close_shared_http_client, get_shared_http_client
 from app.models.db import Base, VeritasAuditLog, VeritasSource
+from app.services.audit_chain import compute_audit_record_hash
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("veritas.main")
@@ -88,8 +89,8 @@ async def seed_initial_truth_corpuses_and_audits() -> None:
             logger.info("Truth corpuses seeded cleanly.")
 
         # Check if audit logs exist
-        existing_audit = (await db.execute(select(VeritasAuditLog).limit(1))).scalar_one_or_none()
-        if not existing_audit:
+        existing_audits = (await db.execute(select(VeritasAuditLog).order_by(VeritasAuditLog.created_at.asc()))).scalars().all()
+        if not existing_audits:
             logger.info("Pre-seeding sample audit records...")
             audits = [
                 VeritasAuditLog(
@@ -225,10 +226,45 @@ async def seed_initial_truth_corpuses_and_audits() -> None:
                     created_at=datetime(2025, 3, 31, 11, 5, 38, tzinfo=timezone.utc),
                 ),
             ]
+            last_hash = "GENESIS"
             for a in audits:
+                a.prev_hash = last_hash
+                a.record_hash = compute_audit_record_hash(
+                    prev_hash=last_hash,
+                    audit_id=a.audit_id,
+                    created_at=a.created_at,
+                    verdict=a.verdict,
+                    policy_applied=a.policy_applied,
+                    primary_model=a.primary_model,
+                    auditor_model=a.auditor_model,
+                    claim_audits=a.claim_audits,
+                )
+                last_hash = a.record_hash
                 db.add(a)
             await db.commit()
-            logger.info("Sample audit records seeded cleanly.")
+            logger.info("Sample audit records seeded cleanly with SHA-256 chain linkage.")
+        else:
+            # Backfill and link any existing audit records
+            last_hash = "GENESIS"
+            needs_commit = False
+            for a in existing_audits:
+                if a.prev_hash != last_hash or not a.record_hash:
+                    a.prev_hash = last_hash
+                    a.record_hash = compute_audit_record_hash(
+                        prev_hash=last_hash,
+                        audit_id=a.audit_id,
+                        created_at=a.created_at,
+                        verdict=a.verdict,
+                        policy_applied=a.policy_applied,
+                        primary_model=a.primary_model,
+                        auditor_model=a.auditor_model,
+                        claim_audits=a.claim_audits,
+                    )
+                    needs_commit = True
+                last_hash = a.record_hash
+            if needs_commit:
+                await db.commit()
+                logger.info("Existing audit logs synchronized with SHA-256 chain hashes.")
 
 
 @asynccontextmanager
@@ -253,6 +289,13 @@ async def lifespan(app: FastAPI):
             cols_keys = [row[1] for row in res_keys.fetchall()]
             if "allowed_policies" not in cols_keys and "id" in cols_keys:
                 await conn.execute(text("ALTER TABLE veritas_app_keys ADD COLUMN allowed_policies JSON DEFAULT '[\"standard\",\"balanced\",\"strict\"]';"))
+
+            res_audits = await conn.execute(text("PRAGMA table_info(veritas_audit_logs);"))
+            cols_audits = [row[1] for row in res_audits.fetchall()]
+            if "prev_hash" not in cols_audits and "audit_id" in cols_audits:
+                await conn.execute(text("ALTER TABLE veritas_audit_logs ADD COLUMN prev_hash VARCHAR(64);"))
+            if "record_hash" not in cols_audits and "audit_id" in cols_audits:
+                await conn.execute(text("ALTER TABLE veritas_audit_logs ADD COLUMN record_hash VARCHAR(64);"))
 
     logger.info("Database schema validated.")
     await seed_initial_truth_corpuses_and_audits()
