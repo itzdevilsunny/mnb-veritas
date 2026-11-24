@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Database, Download, FileText, Plus, Sparkles, UploadCloud } from "lucide-react";
+import { CheckCircle2, Database, RefreshCw, UploadCloud } from "lucide-react";
 import type { AuthorityTier, ManagedSource } from "@/types/veritas";
 
 interface SourceManagerProps {
@@ -16,60 +16,54 @@ export default function SourceManager({
   const [sources, setSources] = useState<ManagedSource[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // PDF Form State
+  // Helper for today's date in YYYY-MM-DD
+  const getTodayDate = () => new Date().toISOString().slice(0, 10);
+
+  // PDF Form State - strictly empty initial inputs
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [baseDocId, setBaseDocId] = useState("budget_annexure_2025");
-  const [docTitle, setDocTitle] = useState("FY 2025-26 Expenditure Profile Part II");
-  const [validFrom, setValidFrom] = useState("2025-04-01");
-  const [validUntil, setValidUntil] = useState("2026-03-31");
+  const [baseDocId, setBaseDocId] = useState("");
+  const [docTitle, setDocTitle] = useState("");
+  const [validFrom, setValidFrom] = useState(getTodayDate);
+  const [validUntil, setValidUntil] = useState("");
   const [isPrimary, setIsPrimary] = useState(true);
   const [authorityTier, setAuthorityTier] = useState<AuthorityTier>("regulatory");
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
-  // Direct Text Upsert Form State
+  // Direct Text Upsert Form State - complete temporal validity and primary controls
   const [textDocId, setTextDocId] = useState("");
   const [textDocTitle, setTextDocTitle] = useState("");
   const [textSnippet, setTextSnippet] = useState("");
   const [textAuthorityTier, setTextAuthorityTier] = useState<AuthorityTier>("regulatory");
+  const [textValidFrom, setTextValidFrom] = useState(getTodayDate);
+  const [textValidUntil, setTextValidUntil] = useState("");
+  const [textIsPrimary, setTextIsPrimary] = useState(false);
   const [savingText, setSavingText] = useState(false);
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [extendingDocId, setExtendingDocId] = useState<string | null>(null);
-  const [loadingPresets, setLoadingPresets] = useState<boolean>(false);
 
   const getAuthorityBadge = (tier: string | undefined) => {
     const t = (tier || "regulatory").toLowerCase();
     switch (t) {
       case "statutory":
-        return { label: "STATUTORY", cls: "bg-purple-950/80 text-purple-300 border-purple-800/60" };
+        return { label: "STATUTORY", cls: "bg-purple-950/70 text-purple-300 border-purple-800/60" };
       case "regulatory":
-        return { label: "REGULATORY", cls: "bg-sky-950/80 text-sky-300 border-sky-800/60" };
+        return { label: "REGULATORY", cls: "bg-sky-950/70 text-sky-300 border-sky-800/60" };
       case "advisory":
-        return { label: "ADVISORY", cls: "bg-amber-950/80 text-amber-300 border-amber-800/60" };
+        return { label: "ADVISORY", cls: "bg-amber-950/70 text-amber-300 border-amber-800/60" };
       case "draft":
       default:
-        return { label: "DRAFT", cls: "bg-zinc-800/80 text-zinc-400 border-zinc-700/60" };
-    }
-  };
-
-  const handleLoadPresets = async () => {
-    setLoadingPresets(true);
-    try {
-      const res = await fetch("/api/sources/seed-presets", { method: "POST" });
-      if (res.ok) {
-        await fetchSources();
-      }
-    } finally {
-      setLoadingPresets(false);
+        return { label: "DRAFT", cls: "bg-zinc-800/70 text-zinc-400 border-zinc-700/60" };
     }
   };
 
   const getTemporalBadge = (validUntil: string | null) => {
     if (!validUntil) {
-      return { label: "PERPETUAL", cls: "bg-blue-950/80 text-blue-300 border-blue-800/60" };
+      return { label: "PERPETUAL", cls: "bg-blue-950/70 text-blue-300 border-blue-800/60" };
     }
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -78,12 +72,12 @@ export default function SourceManager({
     const diffDays = Math.ceil((until.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return { label: `EXPIRED (${Math.abs(diffDays)}d ago)`, cls: "bg-rose-950/80 text-rose-300 border-rose-800/60" };
+      return { label: `EXPIRED (${Math.abs(diffDays)}d ago)`, cls: "bg-rose-950/70 text-rose-300 border-rose-800/60" };
     }
     if (diffDays <= 30) {
-      return { label: `EXPIRING (${diffDays}d left)`, cls: "bg-amber-950/80 text-amber-300 border-amber-800/60" };
+      return { label: `EXPIRING (${diffDays}d left)`, cls: "bg-amber-950/70 text-amber-300 border-amber-800/60" };
     }
-    return { label: "ACTIVE", cls: "bg-emerald-950/80 text-emerald-300 border-emerald-800/60" };
+    return { label: "ACTIVE", cls: "bg-emerald-950/70 text-emerald-300 border-emerald-800/60" };
   };
 
   const handleExtendValidity = async (docId: string, currentUntil: string | null) => {
@@ -100,7 +94,12 @@ export default function SourceManager({
       });
       if (res.ok) {
         await fetchSources();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorMsg(err.detail ?? "Failed to extend source expiry");
       }
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "Error extending expiry");
     } finally {
       setExtendingDocId(null);
     }
@@ -159,7 +158,7 @@ export default function SourceManager({
       formData.append("base_doc_id", baseDocId.trim() || "pdf_doc");
       formData.append("title", docTitle.trim() || selectedFile.name);
       formData.append("valid_from", validFrom);
-      if (validUntil) formData.append("valid_until", validUntil);
+      if (validUntil.trim()) formData.append("valid_until", validUntil.trim());
       formData.append("is_primary", String(isPrimary));
       formData.append("authority_tier", authorityTier);
 
@@ -175,6 +174,9 @@ export default function SourceManager({
           `Ingested ${data.filename} (${data.total_pages} pages, ${data.chunks_created} indexed chunks)`
         );
         setSelectedFile(null);
+        setBaseDocId("");
+        setDocTitle("");
+        setValidUntil("");
         if (fileInputRef.current) fileInputRef.current.value = "";
         await fetchSources();
       }
@@ -187,7 +189,7 @@ export default function SourceManager({
 
   const handleSaveTextSource = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textDocId.trim() || !textSnippet.trim()) return;
+    if (!textDocId.trim() || !textSnippet.trim() || !textValidFrom) return;
 
     setSavingText(true);
     setErrorMsg(null);
@@ -199,9 +201,9 @@ export default function SourceManager({
           doc_id: textDocId.trim(),
           title: textDocTitle.trim() || textDocId.trim(),
           text: textSnippet.trim(),
-          valid_from: "2025-01-01",
-          valid_until: "2027-12-31",
-          is_primary: true,
+          valid_from: textValidFrom,
+          valid_until: textValidUntil.trim() ? textValidUntil.trim() : null,
+          is_primary: textIsPrimary,
           authority_tier: textAuthorityTier,
         }),
       });
@@ -209,21 +211,34 @@ export default function SourceManager({
         setTextDocId("");
         setTextDocTitle("");
         setTextSnippet("");
+        setTextValidUntil("");
+        setTextIsPrimary(false);
         await fetchSources();
       } else {
         const d = await res.json();
         setErrorMsg(d.detail ?? "Failed to save snippet");
       }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Error saving text source");
     } finally {
       setSavingText(false);
     }
   };
 
   const handleArchive = async (docId: string) => {
-    await fetch(`/api/sources/${encodeURIComponent(docId)}`, {
-      method: "DELETE",
-    });
-    await fetchSources();
+    try {
+      const res = await fetch(`/api/sources/${encodeURIComponent(docId)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        await fetchSources();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorMsg(err.detail ?? "Failed to archive source");
+      }
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "Error archiving source");
+    }
   };
 
   return (
@@ -231,7 +246,7 @@ export default function SourceManager({
       {/* CORPUS INGESTION // PDF PARSER */}
       <form
         onSubmit={handleUploadPdf}
-        className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-4"
+        className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-4"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -242,7 +257,9 @@ export default function SourceManager({
               /v1/sources/upload
             </span>
           </div>
-          <span className="font-mono text-[11px] text-zinc-500">Recursive Chunker</span>
+          <span className="font-mono text-[11px] text-zinc-400">
+            Tabular Markdown + Prose Parser
+          </span>
         </div>
 
         {/* Dropzone */}
@@ -272,7 +289,7 @@ export default function SourceManager({
           className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition ${
             isDragging
               ? "border-emerald-500 bg-emerald-500/10 text-emerald-200"
-              : "border-zinc-800 bg-[#0B0F12] text-zinc-400 hover:border-zinc-700"
+              : "border-[#27272A] bg-[#09090B] text-zinc-400 hover:border-zinc-700"
           }`}
         >
           <input
@@ -311,7 +328,7 @@ export default function SourceManager({
               value={baseDocId}
               onChange={(e) => setBaseDocId(e.target.value)}
               placeholder="e.g. budget_annexure_2025"
-              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
             />
           </div>
 
@@ -325,7 +342,7 @@ export default function SourceManager({
               value={docTitle}
               onChange={(e) => setDocTitle(e.target.value)}
               placeholder="e.g. FY 2025-26 Expenditure Profile Part II"
-              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
             />
           </div>
         </div>
@@ -340,19 +357,19 @@ export default function SourceManager({
               required
               value={validFrom}
               onChange={(e) => setValidFrom(e.target.value)}
-              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
             />
           </div>
 
           <div className="space-y-1">
             <label className="block text-[10px] font-mono uppercase text-zinc-500">
-              VALID UNTIL
+              VALID UNTIL (OPTIONAL)
             </label>
             <input
               type="date"
               value={validUntil}
               onChange={(e) => setValidUntil(e.target.value)}
-              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
             />
           </div>
 
@@ -363,7 +380,7 @@ export default function SourceManager({
             <select
               value={authorityTier}
               onChange={(e) => setAuthorityTier(e.target.value as AuthorityTier)}
-              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
             >
               <option value="statutory">Statutory (Gazette / Act / Cabinet)</option>
               <option value="regulatory">Regulatory (RBI / SEBI Direction)</option>
@@ -387,7 +404,7 @@ export default function SourceManager({
           <button
             type="submit"
             disabled={uploadingPdf || !selectedFile}
-            className="rounded-lg bg-emerald-500 px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-50"
+            className="rounded border border-emerald-600/70 bg-emerald-950/60 px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-900/60 disabled:opacity-50"
           >
             {uploadingPdf ? "Parsing & Chunking..." : "Upload & Chunk PDF"}
           </button>
@@ -404,7 +421,7 @@ export default function SourceManager({
       {/* DIRECT TEXT CORPUS UPSERT */}
       <form
         onSubmit={handleSaveTextSource}
-        className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-3"
+        className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-4"
       >
         <div className="flex items-center justify-between">
           <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
@@ -413,49 +430,113 @@ export default function SourceManager({
           <span className="font-mono text-[10px] text-zinc-500">POST /v1/sources</span>
         </div>
 
+        {/* Row 1: ID, Title, Authority Tier */}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <input
-            type="text"
-            required
-            value={textDocId}
-            onChange={(e) => setTextDocId(e.target.value)}
-            placeholder="doc_id (e.g. gazette_notif_49)"
-            className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
-          />
-          <input
-            type="text"
-            required
-            value={textDocTitle}
-            onChange={(e) => setTextDocTitle(e.target.value)}
-            placeholder="Document Title"
-            className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
-          />
-          <select
-            value={textAuthorityTier}
-            onChange={(e) => setTextAuthorityTier(e.target.value as AuthorityTier)}
-            className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
-          >
-            <option value="statutory">Statutory Tier</option>
-            <option value="regulatory">Regulatory Tier</option>
-            <option value="advisory">Advisory Tier</option>
-            <option value="draft">Draft Tier</option>
-          </select>
+          <div className="space-y-1">
+            <label className="block text-[10px] font-mono uppercase text-zinc-500">
+              DOC_ID
+            </label>
+            <input
+              type="text"
+              required
+              value={textDocId}
+              onChange={(e) => setTextDocId(e.target.value)}
+              placeholder="e.g. gazette_notif_49"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-mono uppercase text-zinc-500">
+              DOCUMENT TITLE
+            </label>
+            <input
+              type="text"
+              required
+              value={textDocTitle}
+              onChange={(e) => setTextDocTitle(e.target.value)}
+              placeholder="e.g. RBI Master Direction Notification"
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-mono uppercase text-zinc-500">
+              AUTHORITY TIER
+            </label>
+            <select
+              value={textAuthorityTier}
+              onChange={(e) => setTextAuthorityTier(e.target.value as AuthorityTier)}
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+            >
+              <option value="statutory">Statutory Tier (Act / Gazette)</option>
+              <option value="regulatory">Regulatory Tier (Circular)</option>
+              <option value="advisory">Advisory Tier (Guidance)</option>
+              <option value="draft">Draft Tier (Discussion)</option>
+            </select>
+          </div>
         </div>
 
-        <textarea
-          rows={2}
-          required
-          value={textSnippet}
-          onChange={(e) => setTextSnippet(e.target.value)}
-          placeholder="Paste verbatim source excerpt..."
-          className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] p-2.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
-        />
+        {/* Row 2: Valid From, Valid Until, Primary Checkbox */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 items-end">
+          <div className="space-y-1">
+            <label className="block text-[10px] font-mono uppercase text-zinc-500">
+              VALID FROM
+            </label>
+            <input
+              type="date"
+              required
+              value={textValidFrom}
+              onChange={(e) => setTextValidFrom(e.target.value)}
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-mono uppercase text-zinc-500">
+              VALID UNTIL (OPTIONAL)
+            </label>
+            <input
+              type="date"
+              value={textValidUntil}
+              onChange={(e) => setTextValidUntil(e.target.value)}
+              className="w-full rounded-md border border-[#27272A] bg-[#09090B] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex items-center h-9">
+            <label className="flex items-center gap-2 font-mono text-xs text-zinc-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={textIsPrimary}
+                onChange={(e) => setTextIsPrimary(e.target.checked)}
+                className="h-4 w-4 accent-emerald-500"
+              />
+              <span>Set as Primary Source (Precedence)</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Row 3: Verbatim Excerpt Textarea */}
+        <div className="space-y-1">
+          <label className="block text-[10px] font-mono uppercase text-zinc-500">
+            VERBATIM TRUTH TEXT EXCERPT
+          </label>
+          <textarea
+            rows={3}
+            required
+            value={textSnippet}
+            onChange={(e) => setTextSnippet(e.target.value)}
+            placeholder="Paste verbatim source excerpt with exact numbers, quotes, and fiscal periods..."
+            className="w-full rounded-md border border-[#27272A] bg-[#09090B] p-2.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+          />
+        </div>
 
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={savingText}
-            className="rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 font-mono text-xs font-semibold text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+            disabled={savingText || !textDocId.trim() || !textSnippet.trim()}
+            className="rounded border border-[#27272A] bg-[#18181B] px-3.5 py-1.5 font-mono text-xs font-semibold text-zinc-200 hover:bg-[#222226] transition disabled:opacity-50"
           >
             {savingText ? "Saving..." : "Save Corpus Snippet"}
           </button>
@@ -469,34 +550,34 @@ export default function SourceManager({
       )}
 
       {/* REGISTERED TRUTH CORPUSES */}
-      <div className="rounded-xl border border-zinc-800 bg-[#0E1318]/90 p-5 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
+      <div className="rounded-xl border border-[#27272A] bg-[#111114] p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#27272A] pb-3">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
-              Registered Truth Corpuses
+              Registered Truth Corpuses ({sources.length})
             </span>
             <span className="font-mono text-[10px] text-zinc-500">GET /v1/sources</span>
           </div>
           <button
             type="button"
-            onClick={handleLoadPresets}
-            disabled={loadingPresets}
-            className="inline-flex items-center gap-1.5 rounded border border-sky-800/60 bg-sky-950/40 px-2.5 py-1 font-mono text-[11px] text-sky-400 hover:bg-sky-900/50 transition disabled:opacity-50"
-            title="Ingests official RBI & SEBI gazette circulars into active corpus"
+            onClick={() => void fetchSources()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded border border-[#27272A] bg-[#18181B] px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:bg-[#222226] transition disabled:opacity-50"
+            title="Refresh truth sources from backend database"
           >
-            <Sparkles className="h-3 w-3 text-sky-400" />
-            <span>{loadingPresets ? "Loading Gazette..." : "Ingest Official Gazette Presets"}</span>
+            <RefreshCw className={`h-3 w-3 text-zinc-400 ${loading ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
           </button>
         </div>
 
         <div className="space-y-2.5">
-          {loading ? (
+          {loading && sources.length === 0 ? (
             <div className="py-8 text-center font-mono text-xs text-zinc-500">
-              Loading truth corpuses...
+              Loading truth corpuses from database...
             </div>
           ) : sources.length === 0 ? (
-            <div className="py-8 text-center font-mono text-xs text-zinc-500">
-              No truth sources registered.
+            <div className="py-10 text-center font-mono text-xs text-zinc-500">
+              No active sources indexed yet — upload a PDF or upsert a verbatim snippet above
             </div>
           ) : (
             sources.map((src) => {
@@ -507,7 +588,7 @@ export default function SourceManager({
               return (
                 <div
                   key={src.id}
-                  className="rounded-lg border border-zinc-800/80 bg-[#121820]/70 p-3.5 hover:border-zinc-700 transition space-y-2.5"
+                  className="rounded-lg border border-[#27272A] bg-[#09090B] p-3.5 hover:border-zinc-700 transition space-y-2.5"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="space-y-1">
@@ -542,7 +623,7 @@ export default function SourceManager({
                         Validity: {src.valid_from} to {src.valid_until ?? "indefinite"}
                         {src.page_count
                           ? ` • ${src.page_count} pgs (${src.chunk_count ?? 1} chunks)`
-                          : ""}
+                          : ` • Direct Text Snippet (${src.text.length} chars)`}
                       </div>
                     </div>
 
@@ -550,7 +631,7 @@ export default function SourceManager({
                       <button
                         type="button"
                         onClick={() => setExpandedDocId(isExpanded ? null : src.doc_id)}
-                        className="rounded border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-zinc-100 transition"
+                        className="rounded border border-[#27272A] bg-[#18181B] px-2.5 py-1 text-[11px] text-zinc-300 hover:text-zinc-100 hover:bg-[#222226] transition"
                       >
                         {isExpanded ? "Hide Text" : "Inspect Text"}
                       </button>
@@ -566,7 +647,7 @@ export default function SourceManager({
                       <button
                         type="button"
                         onClick={() => void handleArchive(src.doc_id)}
-                        className="rounded border border-zinc-700/80 px-2.5 py-1 text-[11px] text-zinc-400 hover:border-rose-700 hover:text-rose-300 transition"
+                        className="rounded border border-[#27272A] bg-[#18181B] px-2.5 py-1 text-[11px] text-zinc-400 hover:border-rose-700/80 hover:text-rose-300 hover:bg-rose-950/30 transition"
                       >
                         Archive
                       </button>
@@ -574,8 +655,8 @@ export default function SourceManager({
                   </div>
 
                   {isExpanded && (
-                    <div className="rounded-lg border border-zinc-800 bg-[#080C0E] p-3 space-y-1.5 font-mono text-xs">
-                      <div className="flex items-center justify-between text-[10px] text-zinc-500 border-b border-zinc-800/80 pb-1">
+                    <div className="rounded-lg border border-[#27272A] bg-[#111114] p-3 space-y-1.5 font-mono text-xs">
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500 border-b border-[#27272A] pb-1">
                         <span>SOURCE CORPUS TEXT // {src.text.length} CHARACTERS</span>
                         <span>STATUS: {src.is_active ? "ACTIVE" : "INACTIVE"}</span>
                       </div>
