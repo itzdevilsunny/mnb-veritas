@@ -29,6 +29,13 @@ class Verdict(str, Enum):
     ESCALATE = "ESCALATE"
 
 
+class AuthorityTier(str, Enum):
+    STATUTORY = "statutory"
+    REGULATORY = "regulatory"
+    ADVISORY = "advisory"
+    DRAFT = "draft"
+
+
 @dataclass
 class SourceDoc:
     doc_id: str
@@ -37,6 +44,8 @@ class SourceDoc:
     valid_from: date
     valid_until: date | None = None
     is_primary: bool = True
+    is_active: bool = True
+    authority_tier: AuthorityTier | str = AuthorityTier.REGULATORY
     metadata: dict[str, Any] = field(default_factory=dict)
     embedding: list[float] | None = None
 
@@ -104,6 +113,10 @@ class SourceCreateRequest(BaseModel):
     valid_from: date
     valid_until: date | None = None
     is_primary: bool = True
+    authority_tier: AuthorityTier | str = Field(
+        default=AuthorityTier.REGULATORY,
+        description="Source authority tier: statutory > regulatory > advisory > draft",
+    )
     embedding: list[float] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -123,6 +136,7 @@ class SourceOut(BaseModel):
     is_primary: bool
     is_active: bool
     is_currently_valid: bool
+    authority_tier: str = "regulatory"
     has_embedding: bool = False
     page_count: int | None = None
     chunk_count: int | None = None

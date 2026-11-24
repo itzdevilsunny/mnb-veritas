@@ -47,7 +47,7 @@ def create_sample_pdf(title: str, text: str) -> bytes:
     doc = fitz.open()
     page = doc.new_page(width=595, height=842)
     page.insert_text((72, 72), f"OFFICIAL GAZETTE: {title}", fontsize=14)
-    page.insert_text((72, 120), text, fontsize=10)
+    page.insert_textbox(fitz.Rect(72, 110, 520, 400), text, fontsize=10)
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -122,10 +122,12 @@ def run_full_workflow():
         "valid_from": "2025-01-01",
         "valid_until": "2026-12-31",
         "is_primary": "true",
+        "authority_tier": "statutory",
     }
     s3, up_resp = upload_pdf_multipart("/v1/sources/upload", "rbi_sdf_annexure.pdf", pdf_bytes, upload_fields)
     assert s3 == 201, f"PDF upload failed: {up_resp}"
-    print(f"  ✓ /v1/sources/upload: Processed {up_resp.get('total_chunks')} chunk(s) across {up_resp.get('total_pages')} page(s).")
+    chunks_num = up_resp.get("chunks_created") or up_resp.get("total_chunks")
+    print(f"  ✓ /v1/sources/upload: Processed {chunks_num} chunk(s) across {up_resp.get('total_pages')} page(s).")
     results["phase2_ingestion"] = "PASSED"
 
     # 3. Standard Verification (Grounded Approval)

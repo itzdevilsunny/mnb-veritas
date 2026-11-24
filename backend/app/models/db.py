@@ -68,6 +68,9 @@ class VeritasSource(Base):
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    authority_tier: Mapped[str] = mapped_column(
+        String(32), default="regulatory", server_default="regulatory", nullable=False
+    )
     # Embedding vector column: Vector(1536) on PostgreSQL, JSON on SQLite
     embedding: Mapped[list[float] | None] = mapped_column(SafeVector(dim=1536), nullable=True)
     # JSON column works seamlessly across SQLite and PostgreSQL

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { ManagedSource } from "@/types/veritas";
+import type { AuthorityTier, ManagedSource } from "@/types/veritas";
 
 interface SourceManagerProps {
   onSourcesChanged?: (sources: ManagedSource[]) => void;
@@ -24,6 +24,7 @@ export default function SourceManager({
   const [validFrom, setValidFrom] = useState("2025-04-01");
   const [validUntil, setValidUntil] = useState("2026-03-31");
   const [isPrimary, setIsPrimary] = useState(true);
+  const [authorityTier, setAuthorityTier] = useState<AuthorityTier>("regulatory");
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
@@ -31,11 +32,27 @@ export default function SourceManager({
   const [textDocId, setTextDocId] = useState("");
   const [textDocTitle, setTextDocTitle] = useState("");
   const [textSnippet, setTextSnippet] = useState("");
+  const [textAuthorityTier, setTextAuthorityTier] = useState<AuthorityTier>("regulatory");
   const [savingText, setSavingText] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [extendingDocId, setExtendingDocId] = useState<string | null>(null);
   const [loadingPresets, setLoadingPresets] = useState<boolean>(false);
+
+  const getAuthorityBadge = (tier: string | undefined) => {
+    const t = (tier || "regulatory").toLowerCase();
+    switch (t) {
+      case "statutory":
+        return { label: "STATUTORY", cls: "bg-purple-950/80 text-purple-300 border-purple-800/60" };
+      case "regulatory":
+        return { label: "REGULATORY", cls: "bg-sky-950/80 text-sky-300 border-sky-800/60" };
+      case "advisory":
+        return { label: "ADVISORY", cls: "bg-amber-950/80 text-amber-300 border-amber-800/60" };
+      case "draft":
+      default:
+        return { label: "DRAFT", cls: "bg-zinc-800/80 text-zinc-400 border-zinc-700/60" };
+    }
+  };
 
   const handleLoadPresets = async () => {
     setLoadingPresets(true);
@@ -143,6 +160,7 @@ export default function SourceManager({
       formData.append("valid_from", validFrom);
       if (validUntil) formData.append("valid_until", validUntil);
       formData.append("is_primary", String(isPrimary));
+      formData.append("authority_tier", authorityTier);
 
       const res = await fetch("/api/sources/upload", {
         method: "POST",
@@ -183,6 +201,7 @@ export default function SourceManager({
           valid_from: "2025-01-01",
           valid_until: "2027-12-31",
           is_primary: true,
+          authority_tier: textAuthorityTier,
         }),
       });
       if (res.ok) {
@@ -308,7 +327,7 @@ export default function SourceManager({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="space-y-1">
             <label className="block text-[10px] font-mono uppercase text-zinc-500">
               VALID FROM
@@ -332,6 +351,22 @@ export default function SourceManager({
               onChange={(e) => setValidUntil(e.target.value)}
               className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
             />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-mono uppercase text-zinc-500">
+              AUTHORITY TIER
+            </label>
+            <select
+              value={authorityTier}
+              onChange={(e) => setAuthorityTier(e.target.value as AuthorityTier)}
+              className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+            >
+              <option value="statutory">Statutory (Gazette / Act / Cabinet)</option>
+              <option value="regulatory">Regulatory (RBI / SEBI Direction)</option>
+              <option value="advisory">Advisory (Guidance Note)</option>
+              <option value="draft">Draft (Discussion Paper)</option>
+            </select>
           </div>
         </div>
 
@@ -374,7 +409,7 @@ export default function SourceManager({
           <span className="font-mono text-[10px] text-zinc-500">POST /v1/sources</span>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <input
             type="text"
             required
@@ -391,6 +426,16 @@ export default function SourceManager({
             placeholder="Document Title"
             className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
           />
+          <select
+            value={textAuthorityTier}
+            onChange={(e) => setTextAuthorityTier(e.target.value as AuthorityTier)}
+            className="w-full rounded-md border border-zinc-800 bg-[#0B0F12] px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:border-emerald-500/80 focus:outline-none"
+          >
+            <option value="statutory">Statutory Tier</option>
+            <option value="regulatory">Regulatory Tier</option>
+            <option value="advisory">Advisory Tier</option>
+            <option value="draft">Draft Tier</option>
+          </select>
         </div>
 
         <textarea
@@ -470,6 +515,14 @@ export default function SourceManager({
                             PRIMARY
                           </span>
                         )}
+                        {(() => {
+                          const authBadge = getAuthorityBadge(src.authority_tier);
+                          return (
+                            <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold border ${authBadge.cls}`}>
+                              {authBadge.label}
+                            </span>
+                          );
+                        })()}
                         <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold border ${badge.cls}`}>
                           {badge.label}
                         </span>

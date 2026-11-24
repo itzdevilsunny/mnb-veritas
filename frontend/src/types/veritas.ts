@@ -5,6 +5,7 @@ export type VeritasVerdict = Verdict;
 
 export type CrossLabStatus = "entailed" | "rejected" | "unavailable" | "skipped";
 export type SourceStatus = "valid" | "expired" | "not_yet_valid" | "missing";
+export type AuthorityTier = "statutory" | "regulatory" | "advisory" | "draft";
 
 export interface SourceInput {
   doc_id: string;
@@ -13,6 +14,7 @@ export interface SourceInput {
   valid_from: string; // YYYY-MM-DD
   valid_until?: string | null;
   is_primary?: boolean;
+  authority_tier?: AuthorityTier;
 }
 
 export type SourceDocumentInput = SourceInput;
@@ -27,6 +29,7 @@ export interface ManagedSource {
   is_primary: boolean;
   is_active: boolean;
   is_currently_valid: boolean;
+  authority_tier?: AuthorityTier | string;
   has_embedding?: boolean;
   page_count?: number | null;
   chunk_count?: number | null;

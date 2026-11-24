@@ -22,6 +22,8 @@ async def reset_circuit_breakers_and_sync_db():
             cols_src = [row[1] for row in res_src.fetchall()]
             if "embedding" not in cols_src and "doc_id" in cols_src:
                 await conn.execute(text("ALTER TABLE veritas_sources ADD COLUMN embedding JSON;"))
+            if "authority_tier" not in cols_src and "doc_id" in cols_src:
+                await conn.execute(text("ALTER TABLE veritas_sources ADD COLUMN authority_tier VARCHAR(32) DEFAULT 'regulatory';"))
 
             res_keys = await conn.execute(text("PRAGMA table_info(veritas_app_keys);"))
             cols_keys = [row[1] for row in res_keys.fetchall()]
@@ -29,9 +31,9 @@ async def reset_circuit_breakers_and_sync_db():
                 await conn.execute(text("ALTER TABLE veritas_app_keys ADD COLUMN allowed_policies JSON DEFAULT '[\"standard\",\"balanced\",\"strict\"]';"))
 
     cb = get_circuit_breaker()
-    for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI]:
+    for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]:
         await cb.reset(lab)
     yield
-    for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI]:
+    for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]:
         await cb.reset(lab)
 

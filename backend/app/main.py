@@ -36,6 +36,7 @@ async def seed_initial_truth_corpuses_and_audits() -> None:
                     valid_until=date(2026, 3, 31),
                     is_primary=True,
                     is_active=True,
+                    authority_tier="statutory",
                     metadata_json={"total_pages": 64, "chunk_index": 142},
                 ),
                 VeritasSource(
@@ -49,6 +50,7 @@ async def seed_initial_truth_corpuses_and_audits() -> None:
                     valid_until=date(2027, 3, 31),
                     is_primary=True,
                     is_active=True,
+                    authority_tier="statutory",
                     metadata_json={"total_pages": 28, "chunk_index": 80},
                 ),
                 VeritasSource(
@@ -62,6 +64,7 @@ async def seed_initial_truth_corpuses_and_audits() -> None:
                     valid_until=date(2025, 4, 30),
                     is_primary=False,
                     is_active=True,
+                    authority_tier="regulatory",
                     metadata_json={"total_pages": 52, "chunk_index": 96},
                 ),
                 VeritasSource(
@@ -75,6 +78,7 @@ async def seed_initial_truth_corpuses_and_audits() -> None:
                     valid_until=date(2025, 9, 30),
                     is_primary=False,
                     is_active=True,
+                    authority_tier="regulatory",
                     metadata_json={"total_pages": 14, "chunk_index": 34},
                 ),
             ]
@@ -242,6 +246,8 @@ async def lifespan(app: FastAPI):
             cols = [row[1] for row in result.fetchall()]
             if "embedding" not in cols and "doc_id" in cols:
                 await conn.execute(text("ALTER TABLE veritas_sources ADD COLUMN embedding JSON;"))
+            if "authority_tier" not in cols and "doc_id" in cols:
+                await conn.execute(text("ALTER TABLE veritas_sources ADD COLUMN authority_tier VARCHAR(32) DEFAULT 'regulatory';"))
 
             res_keys = await conn.execute(text("PRAGMA table_info(veritas_app_keys);"))
             cols_keys = [row[1] for row in res_keys.fetchall()]

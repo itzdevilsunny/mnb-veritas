@@ -73,6 +73,116 @@ def split_page_into_chunks(
     return chunks
 
 
+def split_markdown_table_if_needed(table_md: str, max_chars: int = 1800) -> list[str]:
+    """
+    Splits a large markdown table across row boundaries while repeating headers on each split
+    so that table chunks preserve column alignment and cell readability.
+    """
+    lines = [line.strip() for line in table_md.strip().split("\n") if line.strip()]
+    if len(lines) < 3 or len(table_md) <= max_chars:
+        return [table_md.strip()] if table_md.strip() else []
+
+    header = lines[0]
+    separator = lines[1]
+    rows = lines[2:]
+
+    chunks: list[str] = []
+    current_rows: list[str] = []
+
+    for r in rows:
+        candidate = "\n".join([header, separator] + current_rows + [r])
+        if len(candidate) > max_chars and current_rows:
+            chunks.append("\n".join([header, separator] + current_rows))
+            current_rows = [r]
+        else:
+            current_rows.append(r)
+
+    if current_rows:
+        chunks.append("\n".join([header, separator] + current_rows))
+
+    return chunks
+
+
+def extract_page_content(
+    page: fitz.Page,
+    max_chars: int = 1800,
+    overlap_chars: int = 200,
+) -> list[tuple[str, bool]]:
+    """
+    Extracts structured content from a PDF page.
+    Returns a list of tuples: (chunk_text, is_table).
+    Preserves tables as formatted Markdown with headers intact.
+    Extracts non-table text blocks cleanly without scrambling.
+    """
+    results: list[tuple[str, bool]] = []
+
+    # Attempt structured table discovery via PyMuPDF TableFinder
+    table_finder = getattr(page, "find_tables", None)
+    tables = []
+    if callable(table_finder):
+        try:
+            found = table_finder()
+            tables = getattr(found, "tables", []) or []
+        except Exception:
+            tables = []
+
+    if not tables:
+        # Standard prose page extraction
+        raw_text = page.get_text("text", sort=True)
+        cleaned = clean_page_text(raw_text)
+        if cleaned:
+            for piece in split_page_into_chunks(cleaned, max_chars=max_chars, overlap_chars=overlap_chars):
+                results.append((piece, False))
+        return results
+
+    # When tables exist, separate table bboxes from prose text blocks
+    tab_rects = [fitz.Rect(t.bbox) for t in tables if hasattr(t, "bbox")]
+
+    # Extract non-tabular prose blocks
+    blocks = page.get_text("blocks")
+    prose_pieces: list[str] = []
+    for b in blocks:
+        r = fitz.Rect(b[:4])
+        # Check if this block intersects any detected table bbox
+        if not any(r.intersects(tr) for tr in tab_rects):
+            text = b[4].strip()
+            if text:
+                prose_pieces.append(text)
+
+    if prose_pieces:
+        full_prose = clean_page_text("\n\n".join(prose_pieces))
+        if full_prose:
+            for piece in split_page_into_chunks(full_prose, max_chars=max_chars, overlap_chars=overlap_chars):
+                results.append((piece, False))
+
+    # Extract structured Markdown tables
+    for tab in tables:
+        try:
+            md = tab.to_markdown()
+            if md and md.strip():
+                sub_tables = split_markdown_table_if_needed(md, max_chars=max_chars)
+                for sub in sub_tables:
+                    results.append((sub, True))
+                continue
+        except Exception:
+            pass
+
+        # Fallback to extracting table cell rows manually if to_markdown fails
+        rows = getattr(tab, "extract", lambda: [])()
+        if rows:
+            lines = []
+            for row in rows:
+                clean_cells = [str(cell or "").strip().replace("\n", " ") for cell in row]
+                lines.append("| " + " | ".join(clean_cells) + " |")
+            if len(lines) >= 2:
+                sep = "| " + " | ".join(["---"] * len(rows[0])) + " |"
+                md_fallback = lines[0] + "\n" + sep + "\n" + "\n".join(lines[1:])
+                for sub in split_markdown_table_if_needed(md_fallback, max_chars=max_chars):
+                    results.append((sub, True))
+
+    return results
+
+
 def extract_pdf_chunks(
     pdf_bytes: bytes,
     base_doc_id: str,
@@ -83,6 +193,7 @@ def extract_pdf_chunks(
     """
     Parses PDF bytes with PyMuPDF and returns (total_pages, list[PageChunk]).
     Each chunk gets a deterministic doc_id: '{base_doc_id}:p{page}:c{idx}'.
+    Extracts tabular schedules into clean Markdown tables with row/column headers intact.
     """
     chunks: list[PageChunk] = []
     global_idx = 0
@@ -92,18 +203,15 @@ def extract_pdf_chunks(
         for page_idx in range(total_pages):
             page_num = page_idx + 1
             page = doc.load_page(page_idx)
-            raw_text = page.get_text("text", sort=True)
-            cleaned = clean_page_text(raw_text)
-            if not cleaned:
-                continue
 
-            page_splits = split_page_into_chunks(
-                cleaned, max_chars=max_chars, overlap_chars=overlap_chars
+            page_content = extract_page_content(
+                page, max_chars=max_chars, overlap_chars=overlap_chars
             )
-            for local_idx, chunk_text in enumerate(page_splits, start=1):
+            for local_idx, (chunk_text, is_table) in enumerate(page_content, start=1):
                 global_idx += 1
                 chunk_doc_id = f"{base_doc_id}:p{page_num}:c{local_idx}"
-                chunk_title = f"{base_title} (p.{page_num} / chunk {local_idx})"
+                table_tag = " [Table]" if is_table else ""
+                chunk_title = f"{base_title} (p.{page_num} / chunk {local_idx}{table_tag})"
                 chunks.append(
                     PageChunk(
                         chunk_index=global_idx,
@@ -119,4 +227,3 @@ def extract_pdf_chunks(
 
 
 split_page = split_page_into_chunks
-

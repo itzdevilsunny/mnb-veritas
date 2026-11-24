@@ -25,6 +25,7 @@ from app.gateway.circuit_breaker import get_circuit_breaker
 from app.gateway.registry import build_default_router
 from app.gateway.router import VeritasRouter
 from app.ingestion.parser import extract_pdf_chunks
+from app.services.embeddings import generate_embedding, generate_embeddings_batch
 from app.models.db import VeritasAppKey, VeritasAuditLog, VeritasSource
 from app.models.schemas import (
     AppKeyCreatedResponse,
@@ -133,6 +134,7 @@ def _serialize_source(row: VeritasSource, ref_date: date | None = None) -> Sourc
         is_primary=row.is_primary,
         is_active=row.is_active,
         is_currently_valid=valid,
+        authority_tier=getattr(row, "authority_tier", "regulatory") or "regulatory",
         has_embedding=bool(row.embedding),
         page_count=meta.get("total_pages"),
         chunk_count=meta.get("chunk_index"),
@@ -169,6 +171,11 @@ async def upsert_source(
             detail="valid_until cannot precede valid_from",
         )
 
+    tier = str(getattr(payload, "authority_tier", "regulatory") or "regulatory")
+    embedding = payload.embedding
+    if embedding is None:
+        embedding = await generate_embedding(payload.text)
+
     existing = (
         await db.execute(select(VeritasSource).where(VeritasSource.doc_id == payload.doc_id))
     ).scalar_one_or_none()
@@ -180,9 +187,10 @@ async def upsert_source(
         existing.valid_until = payload.valid_until
         existing.is_primary = payload.is_primary
         existing.is_active = True
+        existing.authority_tier = tier
         existing.metadata_json = payload.metadata
-        if payload.embedding is not None:
-            existing.embedding = payload.embedding
+        if embedding is not None:
+            existing.embedding = embedding
         await db.commit()
         await db.refresh(existing)
         return _serialize_source(existing)
@@ -195,7 +203,8 @@ async def upsert_source(
         valid_until=payload.valid_until,
         is_primary=payload.is_primary,
         is_active=True,
-        embedding=payload.embedding,
+        authority_tier=tier,
+        embedding=embedding,
         metadata_json=payload.metadata,
     )
     db.add(row)
@@ -307,6 +316,7 @@ async def seed_regulatory_presets(
             "valid_from": date(2026, 1, 1),
             "valid_until": date(2028, 3, 31),
             "is_primary": True,
+            "authority_tier": "regulatory",
         },
         {
             "doc_id": "doc_sebi_esg_brsr_2026",
@@ -315,6 +325,7 @@ async def seed_regulatory_presets(
             "valid_from": date(2026, 2, 1),
             "valid_until": date(2027, 12, 31),
             "is_primary": True,
+            "authority_tier": "regulatory",
         },
     ]
     out: list[SourceOut] = []
@@ -359,6 +370,7 @@ class PdfUploadResponse(BaseModel):
     valid_from: date
     valid_until: date | None
     is_primary: bool
+    authority_tier: str = "regulatory"
     chunks: list[UploadedChunkSummary]
 
 
@@ -370,6 +382,7 @@ async def upload_pdf_source(
     valid_from: date = Form(...),
     valid_until: date | None = Form(default=None),
     is_primary: bool = Form(default=True),
+    authority_tier: str = Form(default="regulatory"),
     max_chars: int = Form(default=1800, ge=400, le=6000),
     overlap_chars: int = Form(default=200, ge=0, le=1000),
     db: AsyncSession = Depends(get_db_session),
@@ -414,8 +427,9 @@ async def upload_pdf_source(
             detail="The uploaded PDF contained no extractable textual content.",
         )
     summaries: list[UploadedChunkSummary] = []
+    chunk_embeddings = await generate_embeddings_batch([c.text for c in chunks])
 
-    for chunk in chunks:
+    for chunk, emb in zip(chunks, chunk_embeddings):
         existing = (
             await db.execute(select(VeritasSource).where(VeritasSource.doc_id == chunk.doc_id))
         ).scalar_one_or_none()
@@ -439,6 +453,8 @@ async def upload_pdf_source(
             existing.valid_until = valid_until
             existing.is_primary = is_primary
             existing.is_active = True
+            existing.authority_tier = authority_tier
+            existing.embedding = emb
             existing.metadata_json = meta
         else:
             db.add(
@@ -450,6 +466,8 @@ async def upload_pdf_source(
                     valid_until=valid_until,
                     is_primary=is_primary,
                     is_active=True,
+                    authority_tier=authority_tier,
+                    embedding=emb,
                     metadata_json=meta,
                 )
             )
@@ -476,6 +494,7 @@ async def upload_pdf_source(
         valid_from=valid_from,
         valid_until=valid_until,
         is_primary=is_primary,
+        authority_tier=authority_tier,
         chunks=summaries,
     )
 
@@ -506,6 +525,8 @@ async def verify_query(
         stmt = stmt.where(VeritasSource.doc_id.in_(payload.source_ids))
     db_rows = (await db.execute(stmt)).scalars().all()
 
+    query_emb = await generate_embedding(payload.query)
+
     merged_sources: dict[str, SourceDoc] = {
         r.doc_id: SourceDoc(
             doc_id=r.doc_id,
@@ -514,6 +535,7 @@ async def verify_query(
             valid_from=r.valid_from,
             valid_until=r.valid_until,
             is_primary=r.is_primary,
+            authority_tier=getattr(r, "authority_tier", "regulatory") or "regulatory",
             metadata=r.metadata_json,
             embedding=r.embedding,
         )
@@ -530,6 +552,7 @@ async def verify_query(
                 valid_from=s.valid_from,
                 valid_until=s.valid_until,
                 is_primary=s.is_primary,
+                authority_tier=getattr(s, "authority_tier", "regulatory") or "regulatory",
                 metadata=s.metadata,
                 embedding=s.embedding,
             )
@@ -542,6 +565,7 @@ async def verify_query(
         preferred_labs=payload.preferred_labs,
         ref_date=payload.reference_date,
         source_ids=payload.source_ids,
+        query_embedding=query_emb,
     )
 
     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
@@ -628,6 +652,8 @@ async def verify_query_stream(
             detail=f"API key '{client.key_prefix}' is restricted to policy profiles: {client.allowed_policies}. Policy '{payload.policy.value}' is not permitted.",
         )
     db_sources = (await db.execute(select(VeritasSource).where(VeritasSource.is_active == True))).scalars().all()
+    query_emb = await generate_embedding(payload.query)
+
     merged_sources: dict[str, SourceDoc] = {}
     for s in db_sources:
         merged_sources[s.doc_id] = SourceDoc(
@@ -637,7 +663,9 @@ async def verify_query_stream(
             valid_from=s.valid_from,
             valid_until=s.valid_until,
             is_primary=s.is_primary,
+            authority_tier=getattr(s, "authority_tier", "regulatory") or "regulatory",
             metadata=s.metadata_json or {},
+            embedding=getattr(s, "embedding", None),
         )
 
     if payload.inline_sources:
@@ -649,7 +677,9 @@ async def verify_query_stream(
                 valid_from=s.valid_from,
                 valid_until=s.valid_until,
                 is_primary=s.is_primary,
+                authority_tier=getattr(s, "authority_tier", "regulatory") or "regulatory",
                 metadata=s.metadata,
+                embedding=s.embedding,
             )
 
     start_time = time.perf_counter()
@@ -663,6 +693,7 @@ async def verify_query_stream(
             preferred_labs=payload.preferred_labs,
             ref_date=payload.reference_date,
             source_ids=payload.source_ids,
+            query_embedding=query_emb,
         ):
             final_event = event
             yield f"data: {json.dumps(event, default=str)}\n\n"

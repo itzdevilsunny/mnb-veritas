@@ -52,6 +52,7 @@ class VeritasPipeline:
         preferred_labs: list[Lab] | None = None,
         ref_date: date | None = None,
         source_ids: list[str] | None = None,
+        query_embedding: list[float] | None = None,
     ) -> VerificationReport:
         today = ref_date or date.today()
         labs = preferred_labs or [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]
@@ -62,6 +63,7 @@ class VeritasPipeline:
             query=query,
             ref_date=today,
             source_ids=source_ids,
+            query_embedding=query_embedding,
         )
         candidate_docs = valid_docs or expired_docs
 
@@ -202,6 +204,7 @@ class VeritasPipeline:
         preferred_labs: list[Lab] | None = None,
         ref_date: date | None = None,
         source_ids: list[str] | None = None,
+        query_embedding: list[float] | None = None,
     ):
         """
         Server-Sent Events (SSE) generator yielding real-time progress events for each verification stage.
@@ -216,6 +219,7 @@ class VeritasPipeline:
             query=query,
             ref_date=today,
             source_ids=source_ids,
+            query_embedding=query_embedding,
         )
         candidate_docs = valid_docs or expired_docs
         yield {

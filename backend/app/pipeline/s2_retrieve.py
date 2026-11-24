@@ -41,20 +41,38 @@ def cosine_similarity(v1: list[float] | None, v2: list[float] | None) -> float:
     return dot / (norm1 * norm2)
 
 
+AUTHORITY_TIER_MULTIPLIERS: dict[str, float] = {
+    "statutory": 1.25,
+    "regulatory": 1.10,
+    "advisory": 1.00,
+    "draft": 0.85,
+}
+
+
 def reciprocal_rank_fusion(
     ranked_lists: list[list[str]],
     k: int = 60,
     primary_doc_ids: set[str] | None = None,
     primary_boost: float = 0.02,
+    doc_authority_tiers: dict[str, str] | None = None,
 ) -> list[tuple[str, float]]:
     """
     Reciprocal Rank Fusion (RRF) with constant k (default 60).
-    Fuses multiple ranked candidate lists into a single consolidated score.
+    Fuses multiple ranked candidate lists into a single consolidated score,
+    applying deterministic authority tier hierarchy multipliers (statutory > regulatory > advisory > draft)
+    and primary-source precedence boosts.
     """
     scores: dict[str, float] = {}
     for r_list in ranked_lists:
         for rank, doc_id in enumerate(r_list, start=1):
             scores[doc_id] = scores.get(doc_id, 0.0) + (1.0 / (k + rank))
+
+    # Deterministic authority hierarchy tier multiplier
+    if doc_authority_tiers:
+        for doc_id, base_score in list(scores.items()):
+            tier = str(doc_authority_tiers.get(doc_id, "regulatory")).lower()
+            multiplier = AUTHORITY_TIER_MULTIPLIERS.get(tier, 1.0)
+            scores[doc_id] = base_score * multiplier
 
     if primary_doc_ids:
         for doc_id in scores:
@@ -76,20 +94,28 @@ def retrieve_relevant_sources(
     """
     Stage 2: Hybrid Retrieval (pgvector semantic similarity + pg_trgm lexical matching)
     fused with Reciprocal Rank Fusion (k=60), temporal validity partitioning,
+    authority tier hierarchy (statutory > regulatory > advisory > draft),
     and primary-source authority precedence.
 
     Returns:
         tuple[list[SourceDoc], list[SourceDoc]]: (valid_active_docs, expired_docs)
     """
-    filtered_pool = sources
+    filtered_pool = [
+        s for s in sources
+        if getattr(s, "is_active", True) is not False and (getattr(s, "metadata", {}) or {}).get("is_active", True) is not False
+    ]
     if source_ids:
-        filtered_pool = [s for s in sources if s.doc_id in source_ids]
+        filtered_pool = [s for s in filtered_pool if s.doc_id in source_ids]
 
     if not filtered_pool:
         return [], []
 
     docs_by_id = {s.doc_id: s for s in filtered_pool}
     primary_doc_ids = {s.doc_id for s in filtered_pool if s.is_primary}
+    doc_authority_tiers = {
+        s.doc_id: str(getattr(s, "authority_tier", "regulatory") or "regulatory")
+        for s in filtered_pool
+    }
 
     # 1. Lexical Scoring: character trigrams + token keyword overlap
     keywords = {w.lower() for w in re.findall(r"[a-zA-Z0-9]{3,}", query)}
@@ -123,12 +149,13 @@ def retrieve_relevant_sources(
         vec_rank_list = [doc_id for _, doc_id in vec_scored]
         ranked_lists.append(vec_rank_list)
 
-    # 3. Reciprocal Rank Fusion (k=60) with primary source authority boost
+    # 3. Reciprocal Rank Fusion (k=60) with authority hierarchy and primary source boost
     fused = reciprocal_rank_fusion(
         ranked_lists=ranked_lists,
         k=rrf_k,
         primary_doc_ids=primary_doc_ids,
         primary_boost=0.02,
+        doc_authority_tiers=doc_authority_tiers,
     )
 
     top_ids = [doc_id for doc_id, _ in fused[:max_count]]
