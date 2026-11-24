@@ -11,7 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - veritas_pgdata:/var/lib/postgresql/data
-      - ./backend/infra/init-pgvector.sql:/docker-entrypoint-initdb.d/init-pgvector.sql:ro
+      - ./backend/infra/init-pgvector.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-veritas_user} -d ${POSTGRES_DB:-mnb_veritas}"]
       interval: 5s
@@ -44,6 +44,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://veritas_user:veritas_pass@postgres:5432/mnb_veritas}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      PORT: "8000"
     ports:
       - "8000:8000"
     depends_on:
@@ -52,7 +53,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 8
@@ -67,12 +68,20 @@ services:
       - .env
     environment:
       VERITAS_API_URL: http://backend:8000
+      VERITAS_BACKEND_URL: http://backend:8000
       VERITAS_API_KEY: ${VERITAS_API_KEY:-veritas-local-dev-key-2026}
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     ports:
       - "3000:3000"
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
 
 volumes:
   veritas_pgdata:

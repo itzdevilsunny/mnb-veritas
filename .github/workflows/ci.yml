@@ -23,7 +23,7 @@ env:
 
 jobs:
   backend-tests:
-    name: Backend (Python 3.12 + pytest 80/80)
+    name: Backend (Python 3.12 + pytest 82/82)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,14 +71,14 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-          pip install pytest pytest-asyncio httpx
+          pip install pytest pytest-asyncio httpx pgvector
 
       - name: Setup PostgreSQL extensions (vector + pg_trgm)
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           PGPASSWORD=veritas_ci_password psql -h 127.0.0.1 -U veritas_ci -d mnb_veritas_ci -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
 
-      - name: Run pytest unit & verification test suite (80 tests)
+      - name: Run pytest unit & verification test suite (82 tests)
         env:
           PYTHONPATH: .
           DATABASE_URL: postgresql+asyncpg://veritas_ci:veritas_ci_password@127.0.0.1:5432/mnb_veritas_ci

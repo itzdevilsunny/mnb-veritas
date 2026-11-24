@@ -1,4 +1,4 @@
-.PHONY: help env build up down logs ps migrate test test-local smoke workflow battery chain-verify clean-data all clean
+.PHONY: help env build up down logs ps migrate test test-local smoke workflow battery chain-verify clean-data all clean docker-build docker-up docker-down docker-logs
 
 SHELL := /bin/bash
 COMPOSE := docker compose
@@ -13,9 +13,13 @@ help:
 	@echo "  make up           - Start postgres (pgvector), redis, backend, and frontend"
 	@echo "  make down         - Stop running containers"
 	@echo "  make logs         - Tail backend and frontend logs"
+	@echo "  make docker-build - Alias for make build"
+	@echo "  make docker-up    - Alias for make up"
+	@echo "  make docker-down  - Alias for make down"
+	@echo "  make docker-logs  - Alias for make logs"
 	@echo "  make migrate      - Ensure pgvector/pg_trgm extensions and create tables"
-	@echo "  make test         - Run 80-test pytest suite inside docker container"
-	@echo "  make test-local   - Run 80-test pytest suite locally (PYTHONPATH=backend)"
+	@echo "  make test         - Run 82-test pytest suite inside docker container"
+	@echo "  make test-local   - Run 82-test pytest suite locally (PYTHONPATH=backend)"
 	@echo "  make smoke        - Run live smoke test battery (scripts/smoke_test.py)"
 	@echo "  make workflow     - Run full 9-phase automated verification (scripts/test_full_workflow.py)"
 	@echo "  make battery      - Run live multi-policy workbench battery (scripts/test_live_workbench_battery.py)"
@@ -35,14 +39,22 @@ env:
 build:
 	$(COMPOSE) build --pull
 
+docker-build: build
+
 up: env
 	$(COMPOSE) up -d --wait
+
+docker-up: up
 
 down:
 	$(COMPOSE) down
 
+docker-down: down
+
 logs:
 	$(COMPOSE) logs -f $(BACKEND_SVC) $(FRONTEND_SVC)
+
+docker-logs: logs
 
 ps:
 	$(COMPOSE) ps

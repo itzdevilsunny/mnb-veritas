@@ -1,0 +1,22 @@
+# Node modules and build output (built fresh inside container)
+node_modules/
+.next/
+out/
+
+# Environment files
+.env
+.env.*
+!.env.example
+.env.local
+.env.production.local
+
+# Logs and debugging
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Git & OS files
+.git
+.DS_Store
+Thumbs.db

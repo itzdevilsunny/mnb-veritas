@@ -578,23 +578,44 @@ veritas cert aud_b43fd87d --format pdf --out cert_b43fd87d.pdf
 
 ---
 
-### Option 2: Docker Compose (Full Stack)
+### Option 2: One-Command Docker Production Deployment (Full Stack)
 
-To run PostgreSQL with `pgvector`, `Redis`, `FastAPI Backend`, and `Next.js Frontend` in isolated containers:
+MNB Veritas ships with an enterprise multi-container deployment stack orchestrated via `docker-compose.yml`:
+- **Database (`postgres`):** PostgreSQL 16 with pre-initialized `pgvector` (HNSW indexing) and `pg_trgm` (fuzzy trigram matching), healthchecked via `pg_isready`.
+- **Cache & Rate Limiting (`redis`):** Redis 7 Alpine with persistent append-only storage, healthchecked via `redis-cli ping`.
+- **Verification Engine (`backend`):** FastAPI Python 3.12 multi-stage slim container running under unprivileged user `veritas` with PyMuPDF, `asyncpg`, and auto-restarting workers on port `8000`.
+- **Forensic UI (`frontend`):** Next.js 15 standalone Node 22 Alpine container running under unprivileged user `nextjs` with internal Docker bridge proxying to `http://backend:8000` on port `3000`.
 
 ```bash
-# Build and start all services
+# 1. Configure production environment
+cp .env.example .env
+# Set your GEMINI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY in .env
+
+# 2. Build and launch all 4 healthy containers in detached mode
 make up
+# Or: docker compose up -d --wait --build
 
-# Run database migrations
-make migrate
-
-# View running container status
+# 3. View container health and ports
 make ps
 
-# Tail unified logs
+# 4. Tail aggregated service logs
 make logs
+
+# 5. Execute live smoke and verification batteries against the container stack
+python scripts/smoke_test.py
+python -m veritas chain --url http://127.0.0.1:8000
+
+# 6. Gracefully stop containers and preserve persistent database volumes
+make down
 ```
+
+#### Container Service Health Endpoints
+| Service | Container Name | Port | Health Check Mechanism | Target |
+|---|---|:---:|---|---|
+| **PostgreSQL 16** | `mnb-veritas-postgres` | `5432` | `pg_isready -U veritas_user -d mnb_veritas` | Interval: 5s, Retries: 10 |
+| **Redis 7** | `mnb-veritas-redis` | `6379` | `redis-cli ping` | Interval: 5s, Retries: 10 |
+| **FastAPI Backend** | `mnb-veritas-backend` | `8000` | `curl -f http://127.0.0.1:8000/health` | Interval: 10s, Retries: 8 |
+| **Next.js Frontend** | `mnb-veritas-frontend` | `3000` | `wget --spider http://127.0.0.1:3000/` | Interval: 10s, Retries: 8 |
 
 ---
 
