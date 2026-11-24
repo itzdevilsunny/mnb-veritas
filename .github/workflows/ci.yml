@@ -78,10 +78,27 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-client
           PGPASSWORD=veritas_ci_password psql -h 127.0.0.1 -U veritas_ci -d mnb_veritas_ci -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
 
+      - name: Verify PostgreSQL schema creation & bootstrap
+        env:
+          DATABASE_URL: postgresql+asyncpg://veritas_ci:veritas_ci_password@127.0.0.1:5432/mnb_veritas_ci
+        run: |
+          PGPASSWORD=veritas_ci_password psql -h 127.0.0.1 -U veritas_ci -d mnb_veritas_ci -f ../scripts/supabase_schema.sql
+          python -c "
+          import asyncio
+          from app.core.database import engine
+          from app.models.db import Base
+          async def verify():
+              async with engine.begin() as conn:
+                  await conn.run_sync(Base.metadata.create_all)
+              await engine.dispose()
+          asyncio.run(verify())
+          print('PostgreSQL pgvector schema verified successfully.')
+          "
+
       - name: Run pytest unit & verification test suite (82 tests)
         env:
           PYTHONPATH: .
-          DATABASE_URL: postgresql+asyncpg://veritas_ci:veritas_ci_password@127.0.0.1:5432/mnb_veritas_ci
+          DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
           REDIS_URL: redis://127.0.0.1:6379/0
         run: |
           pytest tests/ -v

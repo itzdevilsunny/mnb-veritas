@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -7,6 +9,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 
 _settings = get_settings()
@@ -17,6 +20,8 @@ engine_kwargs = {"echo": False, "future": True}
 
 if db_url.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
+elif "pytest" in sys.modules or os.environ.get("PYTEST_CURRENT_TEST"):
+    engine_kwargs["poolclass"] = NullPool
 
 engine: AsyncEngine = create_async_engine(db_url, **engine_kwargs)
 
