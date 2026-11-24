@@ -274,7 +274,7 @@ class ComplianceCertificateResponse(BaseModel):
     estimated_cost_usd: float | None = None
     verified_quotes: list[VerifiedQuoteClaim] = Field(default_factory=list)
     certificate_seal_sha256: str
-    issuer: str = "MNB Veritas Forensic Evidence Engine v1.4"
+    issuer: str = "MNB Veritas Forensic Evidence Engine"
 
 
 # --- App Key Schemas ---

@@ -76,7 +76,7 @@ def build_certificate_data(
         estimated_cost_usd=audit.estimated_cost_usd,
         verified_quotes=verified_quotes,
         certificate_seal_sha256=seal,
-        issuer="MNB Veritas Forensic Evidence Engine v1.4",
+        issuer="MNB Veritas Forensic Evidence Engine",
     )
 
 
@@ -195,7 +195,7 @@ def render_certificate_pdf(cert: ComplianceCertificateResponse) -> bytes:
         page.draw_line(fitz.Point(36, 805), fitz.Point(559, 805), color=(0.8, 0.85, 0.9), width=1)
         page.insert_text(
             fitz.Point(36, 820),
-            "MNB Veritas v1.4 Forensic Engine · Zero-PII Telemetry · Tamper-Evident SHA-256 Linkage",
+            "MNB Veritas Forensic Engine · Zero-PII Telemetry · Tamper-Evident SHA-256 Linkage",
             fontsize=8,
             color=(0.55, 0.60, 0.65),
         )

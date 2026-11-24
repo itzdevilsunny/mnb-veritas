@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MNB Veritas v1.4 | Evidence Engine",
+  title: "MNB Veritas | Evidence Engine",
   description: "Not a Score. The Source. Multi-Model AI Verification & Anti-Hallucination Middleware Layer",
 };
 
