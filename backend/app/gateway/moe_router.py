@@ -14,6 +14,29 @@ from app.models.schemas import Lab
 logger = logging.getLogger("veritas.moe_router")
 
 
+def sanitize_failure_reason(exc: Exception | str | None) -> str:
+    """
+    Sanitize raw provider error strings into clean, zero-PII diagnostic categories.
+    Never leaks API keys, authorization headers, or private user payload data.
+    """
+    if not exc:
+        return "Provider Unavailable"
+    msg = str(exc).lower()
+    if any(k in msg for k in ["429", "quota", "credit", "resourceexhausted", "rate_limit", "insufficient_quota"]):
+        return "429 Quota Exceeded"
+    if any(k in msg for k in ["401", "unauthorized", "invalid_api_key", "auth_subrequest"]):
+        return "401 Auth Failed"
+    if any(k in msg for k in ["403", "forbidden"]):
+        return "403 Forbidden"
+    if "ollama" in msg and any(k in msg for k in ["connection refused", "connecterror", "unreachable", "111", "10061"]):
+        return "Ollama Unreachable"
+    if any(k in msg for k in ["connection refused", "connecterror", "timed out", "timeout", "10061"]):
+        return "Connection / Timeout Error"
+    if "circuit" in msg and "open" in msg:
+        return "Circuit Open"
+    return "Failover Exhausted"
+
+
 class MoERoute(str, Enum):
     FAST_EXTRACTION = "fast_extraction"
     DEEP_AUDIT = "deep_audit"
@@ -104,6 +127,7 @@ class MoERouter:
         self.providers = providers
         self.circuit_breaker = circuit_breaker or get_circuit_breaker()
         self.settings = get_settings()
+        self.last_failure_reason: str | None = None
 
     def classify_task(
         self,
@@ -244,6 +268,7 @@ class MoERouter:
                     cost,
                     (attempts > 1),
                 )
+                self.last_failure_reason = None
                 return content, provider, telemetry
 
             except Exception as exc:
@@ -303,6 +328,7 @@ class MoERouter:
                     failover_triggered=True,
                     circuit_state=cb_state,
                 )
+                self.last_failure_reason = None
                 return content, provider, telemetry
             except Exception as exc:
                 await self.circuit_breaker.record_failure(lab)
@@ -310,6 +336,7 @@ class MoERouter:
                 continue
 
         # Strictly Zero Mock rule: raise error if no real provider could fulfill the request
+        self.last_failure_reason = sanitize_failure_reason(last_exc)
         raise RuntimeError(
             f"No live LLM provider available to fulfill request across configured labs {list(self.providers.keys())}. "
             f"All circuits exhausted or excluded. Last error: {last_exc}"

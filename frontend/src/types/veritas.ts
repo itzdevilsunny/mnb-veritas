@@ -72,6 +72,7 @@ export interface GatewayTelemetry {
   estimated_cost_usd?: number;
   numeric_concord_pct?: number;
   temporal_bound?: string;
+  failure_reason?: string | null;
 }
 
 export interface VerifyRequest {

@@ -188,6 +188,7 @@ class VeritasPipeline:
         )
 
         # Stage 5: Report
+        fail_reason = getattr(self.router, "last_failure_reason", None) if not gen_provider else None
         return build_verification_report(
             verdict=verdict,
             final_answer=final_answer,
@@ -195,6 +196,7 @@ class VeritasPipeline:
             auditor_model_used=auditor_model_used,
             claim_audits=audits,
             warnings=warnings,
+            failure_reason=fail_reason,
         )
 
     async def run_stream(
@@ -344,6 +346,7 @@ class VeritasPipeline:
         }
 
         # Stage 5: Compilation
+        fail_reason = getattr(self.router, "last_failure_reason", None) if not gen_provider else None
         report = build_verification_report(
             verdict=verdict,
             final_answer=final_answer,
@@ -351,6 +354,7 @@ class VeritasPipeline:
             auditor_model_used=auditor_model_used,
             claim_audits=audits,
             warnings=warnings,
+            failure_reason=fail_reason,
         )
 
         yield {

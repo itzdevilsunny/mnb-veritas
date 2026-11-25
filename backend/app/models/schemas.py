@@ -102,6 +102,7 @@ class VerificationReport(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     estimated_cost_usd: float = 0.0
+    failure_reason: str | None = None
 
 
 # --- API Request & Response Schemas ---
@@ -155,6 +156,7 @@ class GatewayTelemetry(BaseModel):
     estimated_cost_usd: float = 0.0
     numeric_concord_pct: float = 100.0
     temporal_bound: str = "VALID"
+    failure_reason: str | None = None
 
 
 

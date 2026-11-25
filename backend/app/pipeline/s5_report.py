@@ -11,6 +11,7 @@ def build_verification_report(
     claim_audits: list[ClaimAuditResult],
     warnings: list[str],
     latency_ms: int = 0,
+    failure_reason: str | None = None,
 ) -> VerificationReport:
     """
     Stage 5: Structured Report Builder with full audit trail.
@@ -54,4 +55,5 @@ def build_verification_report(
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         estimated_cost_usd=estimated_cost_usd,
+        failure_reason=failure_reason,
     )

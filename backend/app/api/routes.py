@@ -164,14 +164,15 @@ async def reset_provider_circuit(
     }
 
 
+@router.post("/health/circuits/reset")
 @router.post("/health/providers/reset-all")
 async def reset_all_provider_circuits(
     router_inst: VeritasRouter = Depends(get_veritas_router),
     client: AuthenticatedClient = Depends(verify_authenticated_client),
 ) -> dict[str, Any]:
-    """Manually resets all provider circuit breakers to CLOSED."""
-    for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]:
-        await router_inst.circuit_breaker.reset(lab)
+    """Manually resets all provider circuit breakers to CLOSED and clears failure diagnostics."""
+    await router_inst.circuit_breaker.reset_all()
+    router_inst.last_failure_reason = None
     return {
         "status": "ok",
         "message": "All provider circuit breakers reset to CLOSED.",
@@ -654,6 +655,7 @@ async def verify_query(
         else ("EXPIRED_FLAGGED" if any(c.source_expired for c in report.claim_audits) else "VALID")
     )
 
+    resolved_failure_reason = getattr(llm_router, "last_failure_reason", None) or getattr(report, "failure_reason", None)
     telemetry = GatewayTelemetry(
         primary_model=report.model_used,
         auditor_model=report.auditor_model_used,
@@ -666,6 +668,7 @@ async def verify_query(
         estimated_cost_usd=report.estimated_cost_usd,
         numeric_concord_pct=report.numeric_concord_pct,
         temporal_bound=temporal_status,
+        failure_reason=resolved_failure_reason,
     )
 
     # 5. Persist audit log with tamper-evident SHA-256 chain linkage
@@ -786,11 +789,12 @@ async def verify_query_stream(
             audit_id = f"aud_{hashlib.sha256(f'{payload.query}_{time.time()}'.encode()).hexdigest()[:8]}"
             claim_audits_raw = rep.get("claim_audits", [])
             last_moe = getattr(llm_router, "last_telemetry", None)
+            resolved_failure_reason = getattr(llm_router, "last_failure_reason", None) or rep.get("failure_reason")
             telemetry = GatewayTelemetry(
                 primary_model=rep.get("model_used", "unknown"),
                 auditor_model=rep.get("auditor_model_used"),
                 moe_route=last_moe.moe_route.value if last_moe else "fast_extraction",
-                circuit_state=last_moe.circuit_state if last_moe else "CLOSED",
+                circuit_state=last_moe.circuit_state if last_moe else ("OPEN" if rep.get("model_used") == "provider_exhausted" else "CLOSED"),
                 failover_triggered=getattr(llm_router, "last_failover_occurred", False),
                 latency_ms=elapsed_ms,
                 prompt_tokens=rep.get("tokens_in", 0),
@@ -798,6 +802,7 @@ async def verify_query_stream(
                 estimated_cost_usd=rep.get("estimated_cost_usd", 0.0),
                 numeric_concord_pct=rep.get("numeric_concord_pct", 100.0),
                 temporal_bound="VALID" if not any(c.get("source_expired") for c in claim_audits_raw) else "EXPIRED_FLAGGED",
+                failure_reason=resolved_failure_reason,
             )
             audit_entry = await prepare_audit_log_entry(
                 db,
@@ -915,6 +920,7 @@ async def verify_batch(
                     if len(report.claim_audits) == 0
                     else ("EXPIRED_FLAGGED" if any(c.source_expired for c in report.claim_audits) else "VALID")
                 )
+                resolved_failure_reason = getattr(llm_router, "last_failure_reason", None) or getattr(report, "failure_reason", None)
                 telemetry = GatewayTelemetry(
                     primary_model=report.model_used,
                     auditor_model=report.auditor_model_used,
@@ -927,6 +933,7 @@ async def verify_batch(
                     estimated_cost_usd=report.estimated_cost_usd,
                     numeric_concord_pct=report.numeric_concord_pct,
                     temporal_bound=temporal_status,
+                    failure_reason=resolved_failure_reason,
                 )
                 created_at = datetime.now(timezone.utc)
                 verify_res = VerifyApiResponse(

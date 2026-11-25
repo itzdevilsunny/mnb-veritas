@@ -36,6 +36,15 @@ class VeritasRouter:
         self.last_failover_occurred: bool = False
         self.last_telemetry: MoETelemetry | None = None
 
+    @property
+    def last_failure_reason(self) -> str | None:
+        return getattr(self.moe, "last_failure_reason", None)
+
+    @last_failure_reason.setter
+    def last_failure_reason(self, val: str | None) -> None:
+        if hasattr(self.moe, "last_failure_reason"):
+            self.moe.last_failure_reason = val
+
     async def call_with_failover(
         self,
         preferred_labs: list[Lab],

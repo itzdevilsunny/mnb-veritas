@@ -74,6 +74,7 @@ export default function AuditWorkbench({
   // What-If Matrix state
   const [whatIfLoading, setWhatIfLoading] = useState(false);
   const [whatIfResults, setWhatIfResults] = useState<BatchVerifyItemResult[] | null>(null);
+  const [resettingCircuits, setResettingCircuits] = useState(false);
 
   // Fetch real active truth sources from GET /v1/sources
   useEffect(() => {
@@ -88,27 +89,35 @@ export default function AuditWorkbench({
         const derived: QuickPrompt[] = [];
         for (const s of srcList.slice(0, 6)) {
           const tier = (s.authority_tier || "regulatory").toUpperCase();
-          const cleanText = s.text.replace(/\s+/g, " ").trim();
-          
-          // Generate a genuine grounded query from the source's content
+          const cleanText = s.text.replace(/\s+/g, " ").trim().toLowerCase();
+          const docId = s.doc_id.toLowerCase();
+          const title = s.title.toLowerCase();
+
+          // Generate a genuine grounded query with exact document scoping
           let promptQuery = "";
           let label = s.title;
 
-          if (cleanText.toLowerCase().includes("liquid cushion") || cleanText.toLowerCase().includes("aif")) {
-            promptQuery = "What is the mandatory liquid cushion requirement for Category I and II Alternative Investment Funds under emergency drawdown rules?";
-            label = "AIF Liquid Cushion Mandate";
-          } else if (cleanText.toLowerCase().includes("cyber") || cleanText.toLowerCase().includes("velocity")) {
-            promptQuery = "What are the transaction velocity limits for newly onboarded digital accounts under RBI cyber security controls?";
-            label = "RBI Cyber Velocity Controls";
-          } else if (cleanText.toLowerCase().includes("brsr") || cleanText.toLowerCase().includes("esg")) {
-            promptQuery = "What percentage of value chain footprints must obtain reasonable assurance under SEBI BRSR Core reporting?";
-            label = "SEBI BRSR Core ESG Assurance";
-          } else if (cleanText.toLowerCase().includes("hydrogen") || cleanText.toLowerCase().includes("budget")) {
+          if (docId.includes("green_hydrogen") || title.includes("hydrogen") || cleanText.includes("green hydrogen mission")) {
             promptQuery = "What is the approved budgetary allocation for the National Green Hydrogen Mission for FY 2025-26 under the new outlay?";
             label = "Green Hydrogen Budget Outlay";
+          } else if (docId.includes("budget_2025") || (title.includes("budget") && !title.includes("hydrogen")) || cleanText.includes("11,11,111")) {
+            promptQuery = "What is the total capital expenditure outlay approved for FY 2025-26 under the Union Budget?";
+            label = "Union Budget CapEx Outlay";
+          } else if (docId.includes("sebi_aifi") || cleanText.includes("liquid cushion") || (cleanText.includes("alternative investment") && cleanText.includes("cushion"))) {
+            promptQuery = "What is the mandatory liquid cushion requirement for Category I and II Alternative Investment Funds under emergency drawdown rules?";
+            label = "AIF Liquid Cushion Mandate";
+          } else if (docId.includes("brsr") || title.includes("brsr") || cleanText.includes("brsr core") || cleanText.includes("reasonable assurance")) {
+            promptQuery = "What percentage of value chain footprints must obtain reasonable assurance under SEBI BRSR Core reporting?";
+            label = "SEBI BRSR Core ESG Assurance";
+          } else if (docId.includes("rbi") || title.includes("monetary policy") || cleanText.includes("repo rate")) {
+            promptQuery = "What is the policy repo rate under the liquidity adjustment facility specified in the RBI Monetary Policy Report?";
+            label = "RBI Policy Repo Rate";
+          } else if (cleanText.includes("cyber") || cleanText.includes("velocity")) {
+            promptQuery = "What are the transaction velocity limits for newly onboarded digital accounts under RBI cyber security controls?";
+            label = "RBI Cyber Velocity Controls";
           } else {
             // General query derived from title and first sentence
-            const firstSentence = cleanText.split(".")[0];
+            const firstSentence = s.text.replace(/\s+/g, " ").trim().split(".")[0];
             promptQuery = `What does ${s.title} mandate regarding ${firstSentence.slice(0, 80)}...?`;
             label = s.title.slice(0, 36);
           }
@@ -152,10 +161,29 @@ export default function AuditWorkbench({
     setQuery(qp.query);
     setRefDate(qp.refDate);
     setPolicy(qp.policy);
-    if (qp.sourceDocId !== "all") {
-      setSourceFilter(qp.sourceDocId);
-    } else {
-      setSourceFilter("all");
+    setSourceFilter(qp.sourceDocId || "all");
+  };
+
+  const handleResetCircuits = async () => {
+    setResettingCircuits(true);
+    try {
+      const res = await fetch("/api/health/circuits/reset", { method: "POST" });
+      if (res.ok) {
+        if (result && result.telemetry) {
+          setResult({
+            ...result,
+            telemetry: {
+              ...result.telemetry,
+              circuit_state: "CLOSED",
+              failure_reason: null,
+            },
+          });
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setResettingCircuits(false);
     }
   };
 
@@ -822,9 +850,15 @@ export default function AuditWorkbench({
                     }`}>
                       {result.telemetry.primary_model}
                     </span>
-                    <span className="text-[10px] text-zinc-400 truncate block">
-                      → {result.telemetry.auditor_model || "None (Skipped)"}
-                    </span>
+                    {result.telemetry.failure_reason ? (
+                      <span className="text-[10px] text-amber-400/90 truncate block font-sans font-medium" title={result.telemetry.failure_reason}>
+                        Failover: {result.telemetry.failure_reason}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-zinc-400 truncate block">
+                        → {result.telemetry.auditor_model || "None (Skipped)"}
+                      </span>
+                    )}
                   </div>
 
                   {/* Telemetry Col 2: Route & Circuit */}
@@ -833,14 +867,28 @@ export default function AuditWorkbench({
                     <span className="font-semibold text-cyan-400 uppercase tracking-wide truncate block">
                       {result.telemetry.moe_route || "DETERMINISTIC_VETO"}
                     </span>
-                    <span className={`text-[10px] flex items-center gap-1 font-semibold ${
-                      result.telemetry.circuit_state === "OPEN" ? "text-rose-400" : "text-emerald-400"
-                    }`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${
-                        result.telemetry.circuit_state === "OPEN" ? "bg-rose-400 animate-pulse" : "bg-emerald-400"
-                      }`} />
-                      {result.telemetry.circuit_state || "CLOSED"}
-                    </span>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className={`text-[10px] flex items-center gap-1 font-semibold ${
+                        result.telemetry.circuit_state === "OPEN" ? "text-rose-400" : "text-emerald-400"
+                      }`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${
+                          result.telemetry.circuit_state === "OPEN" ? "bg-rose-400 animate-pulse" : "bg-emerald-400"
+                        }`} />
+                        {result.telemetry.circuit_state || "CLOSED"}
+                      </span>
+                      {result.telemetry.circuit_state === "OPEN" && (
+                        <button
+                          type="button"
+                          onClick={handleResetCircuits}
+                          disabled={resettingCircuits}
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-rose-800/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-[9px] font-mono font-medium transition disabled:opacity-50"
+                          title="Reset tripped provider circuit breakers to CLOSED"
+                        >
+                          <RotateCcw className={`h-2.5 w-2.5 ${resettingCircuits ? "animate-spin" : ""}`} />
+                          <span>{resettingCircuits ? "RESETTING..." : "RESET"}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Telemetry Col 3: Latency & Cost */}

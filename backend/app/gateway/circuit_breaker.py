@@ -226,6 +226,11 @@ class CircuitBreakerManager:
         info["last_failure_time"] = 0.0
         logger.info("Reset circuit for %s via in-memory store", lab_key)
 
+    async def reset_all(self) -> None:
+        for lab in [Lab.ANTHROPIC, Lab.OPENAI, Lab.GOOGLE, Lab.XAI, Lab.OLLAMA]:
+            await self.reset(lab)
+        logger.info("Reset all provider circuit breakers to CLOSED")
+
     async def get_all_status(self) -> dict[str, Any]:
         redis_ok = await self.is_redis_connected()
         providers_status: dict[str, Any] = {}
